@@ -1,0 +1,51 @@
+{
+  "name": "@practicaljs/react-oauth",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/react-oauth.js",
+      "require": "./dist/react-oauth.umd.cjs"
+    }
+  },
+  "main": "dist/react-oauth.umd.cjs",
+  "module": "dist/react-oauth.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "start": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "prepack": "json -f package.json -I -e \"delete this.devDependencies; delete this.dependencies\"",
+    "postpublish": "git checkout ./package.json",
+    "test": "vitest",
+    "test:deploy": "vitest run"
+  },
+  "dependencies": {
+    "react": ">=17.x",
+    "react-dom": ">=17.x"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^5.16.5",
+    "@testing-library/react": "^13.4.0",
+    "@testing-library/user-event": "^14.4.3",
+    "@types/react": "18.0.26",
+    "@types/react-dom": "18.0.9",
+    "@vitejs/plugin-react-swc": "3.0.1",
+    "jsdom": "20.0.3",
+    "json": "11.0.0",
+    "typescript": "4.9.4",
+    "vite": "4.0.3",
+    "vite-plugin-css-injected-by-js": "^2.2.0",
+    "vite-plugin-dts": "1.7.1",
+    "vite-plugin-svgr": "^2.4.0",
+    "vitest": "^0.26.2"
+  },
+  "peerDependencies": {
+    "react": ">=17.x",
+    "react-dom": ">=17.x"
+  }
+}
