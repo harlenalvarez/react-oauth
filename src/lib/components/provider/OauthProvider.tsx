@@ -1,4 +1,4 @@
-import { ConfigContext } from "@/context"
+import { ConfigContext } from "@/context";
 import { SetupConfig, createConfig } from '@/types';
 
 type OauthProviderProps = {
@@ -6,6 +6,7 @@ type OauthProviderProps = {
     children: React.ReactNode
 }
 export const OauthProvider = ({ config, children }: OauthProviderProps) => {
+    console.log('Redering OauthProvider')
     const generatedConfig = createConfig(config);
     return (
         <ConfigContext.Provider value={generatedConfig}>

@@ -1,11 +1,11 @@
-import { describe, it, beforeAll, afterAll, vi } from 'vitest'
-import { getTokenStorage } from './TokenStorage'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { getTokenStorage } from './TokenStorage';
 
 const mockStorage = (returnValue: string) => {
-  const { setItem, getItem, removeItem } =  Storage.prototype
-  Storage.prototype.setItem = vi.fn();
-  Storage.prototype.getItem = vi.fn().mockReturnValue(returnValue);
-  Storage.prototype.removeItem = vi.fn();
+  const { setItem, getItem, removeItem } = Storage.prototype
+  Storage.prototype.setItem = vi.spyOn(Storage.prototype, 'setItem') as any;
+  Storage.prototype.getItem = vi.spyOn(Storage.prototype, 'getItem') as any;
+  Storage.prototype.removeItem = vi.spyOn(Storage.prototype, 'removeItem') as any;
 
   return () => {
     Storage.prototype.setItem = setItem;
@@ -76,7 +76,7 @@ describe('Token Storage', () => {
     resetStorage();
   });
 
-  test('Should get set access token', async () => {
+  it('Should get set access token', async () => {
     const accessToken = 'access_token';
     const services = getTokenStorage('123');
     const encryptedToken = await services.Encrypt(accessToken);
@@ -92,10 +92,36 @@ describe('Token Storage', () => {
     resetStorage();
   });
 
-  test('Should get set refresh token', async () => {
+  it('Should get set refresh token', async () => {
     const refreshToken = 'refesh_token';
     const services = getTokenStorage('123');
     const encryptedToken = await services.Encrypt(refreshToken);
+    const reset = mockStorage(encryptedToken);
+    await services.setRefreshToken(refreshToken);
+    expect(localStorage.setItem).toHaveBeenCalledTimes(1);
+    expect(localStorage.setItem).toHaveBeenCalledWith('RefreshToken_123', encryptedToken);
+    const saved = await services.getRefreshToken();
+    expect(saved).toBe(refreshToken)
+    await services.setRefreshToken('')
+    expect(localStorage.removeItem).toHaveBeenCalledTimes(1)
+    expect(localStorage.removeItem).toHaveBeenCalledWith('RefreshToken_123')
+    reset();
+  });
+
+  it('Should get set idToken', async () => {
+    const idToken = 'id_token';
+    const services = getTokenStorage('123');
+    const encryptedToken = await services.Encrypt(idToken)
+    const reset = mockStorage(encryptedToken);
+    await services.setIdToken(idToken);
+    expect(localStorage.setItem).toHaveBeenCalledTimes(1);
+    expect(localStorage.setItem).toHaveBeenCalledWith('IdToken_123', encryptedToken);
+    const saved = await services.getIdToken();
+    expect(saved).toBe(idToken);
+    await services.setIdToken('');
+    expect(localStorage.removeItem).toHaveBeenCalledTimes(1);
+    expect(localStorage.removeItem).toHaveBeenCalledWith('IdToken_123');
+    reset();
   });
 
   afterAll(() => {

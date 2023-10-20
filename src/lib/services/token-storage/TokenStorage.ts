@@ -1,6 +1,6 @@
 import { genKey } from "@/utils";
 
-class TokenStorage {
+export class TokenStorage {
 
   private verifierKey = 'PKCE_Verifier';
   private challengeKey = 'PKCE_Challenge';
@@ -12,6 +12,7 @@ class TokenStorage {
   private encoder: TextEncoder;
   private decoder: TextDecoder;
   private iv: Uint8Array;
+  private genKey: string;
 
   constructor(args: { clientId: string }) {
     this.clientId = args.clientId;
@@ -22,6 +23,7 @@ class TokenStorage {
     this.encoder = new TextEncoder();
     this.decoder = new TextDecoder();
     this.iv = Uint8Array.from(this.accessTokenKey, x => x.charCodeAt(0));
+    this.genKey = `CODE_${this.clientId}`;
   }
 
   set Verifier(value: string) {
@@ -48,27 +50,38 @@ class TokenStorage {
     return localStorage.getItem(this.challengeKey) || '';
   }
 
-  async setAccessToken(value: string) {
-    if(!value) {
-      localStorage.removeItem(this.accessTokenKey);
+  set TokenExpiration(value: number) {
+    localStorage.setItem(this.tokenExpKey, `${value || 0}`);
+  }
+
+  get TokenExpiration() {
+    return Number(localStorage.getItem(this.tokenExpKey) || 0);
+  }
+
+  set GenCode(value: string) {
+    if (!value) {
+      localStorage.removeItem(this.genKey);
       return;
     }
-    const ecryptedToken = await this.Encrypt(value);
-    localStorage.setItem(this.accessTokenKey, ecryptedToken);
+    localStorage.setItem(this.genKey, value);
+  }
+
+  get GenCode() {
+    return localStorage.getItem(this.genKey) || '';
+  }
+
+  async setAccessToken(value: string) {
+    await this.setTokenByKey(this.accessTokenKey, value)
   }
 
   async getAccessToken() {
-    const savedToken = localStorage.getItem(this.accessTokenKey) || '';
-    if(!savedToken) return savedToken;
-
-    const decrypted = await this.Decrypt(savedToken);
-    return decrypted;
+    return await this.getTokenByKey(this.accessTokenKey)
   }
 
   async Encrypt(value: string) {
     if (!isSecureContext) return value;
     const encoded = this.encoder.encode(value);
-    const key = await genKey(); 
+    const key = await genKey(this.GenCode);
     const encryptedValue = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: this.iv }, key, encoded);
     const encryptedString = String.fromCharCode(...new Uint8Array(encryptedValue));
     return encryptedString
@@ -77,9 +90,41 @@ class TokenStorage {
   async Decrypt(value: string) {
     if (!isSecureContext) return value;
     const encoded = Uint8Array.from(value, x => x.charCodeAt(0));
-    const key = await genKey();
+    const key = await genKey(this.GenCode);
     const decryptedValue = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: this.iv }, key, encoded);
     return this.decoder.decode(decryptedValue);
+  }
+
+  async setRefreshToken(value: string) {
+    await this.setTokenByKey(this.refreshTokenKey, value)
+  }
+
+  async getRefreshToken() {
+    return await this.getTokenByKey(this.refreshTokenKey)
+  }
+
+  async setIdToken(value: string) {
+    await this.setTokenByKey(this.idTokenKey, value);
+  }
+  async getIdToken() {
+    return await this.getTokenByKey(this.idTokenKey);
+  }
+
+  async setTokenByKey(key: string, value: string) {
+    if (!value) {
+      localStorage.removeItem(key);
+      return;
+    }
+    const encrypted = await this.Encrypt(value);
+    localStorage.setItem(key, encrypted);
+  }
+
+  async getTokenByKey(key: string) {
+    const savedToken = localStorage.getItem(key) || '';
+    if (!savedToken) return savedToken;
+
+    const decrypted = await this.Decrypt(savedToken);
+    return decrypted;
   }
 }
 

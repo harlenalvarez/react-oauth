@@ -17,24 +17,18 @@ export const isRequired = (name: string): any => {
   throw new Error(`Field ${name} is required`);
 }
 
-export const isType = <T>(obj: any, ...keys: (keyof T)[]): obj is T => {
-  if (obj == null) return false
-  for (const key of keys) {
-    if (obj[key] === null || obj[key] === undefined) return false
-  }
-  return true
-}
+export const b64Encode = (payload: string) => btoa(unescape(encodeURIComponent(payload)));
+export const b64Decode = (payload: string) => decodeURIComponent(escape(atob(payload)));
 
-export const b64Encode = (payload: string) => btoa(encodeURIComponent(payload));
-export const b64Decode = (payload: string) => decodeURIComponent(atob(payload));
-
-const hash = '²Èªï{Ê«¢¤¹`àçp³&²#}J	É~Ü|';
-export const genKey = async () => {
+// for unit testing purposes
+const hardCodedHash = '²Èªï{Ê«¢¤¹`àçp³&²#}J	É~Ü|';
+export const genKey = async (tokenHash: string) => {
+  const hash = (!tokenHash || tokenHash.length < 32) ? hardCodedHash : tokenHash.substring(0, 32);
   const encode = Uint8Array.from(hash, x => x.charCodeAt(0));
   let key = await crypto.subtle.importKey(
     'raw',
     encode,
-    { name: 'AES-GCM', length: 256},
+    { name: 'AES-GCM', length: 256 },
     true,
     ['encrypt', 'decrypt']
   );

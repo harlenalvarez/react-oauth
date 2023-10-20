@@ -3,7 +3,7 @@ import { b64Decode, b64Encode, create, genKey, isRequired } from './index';
 
 class User {
     name!: string
-    age?:number
+    age?: number
 }
 
 type UserType = {
@@ -30,7 +30,7 @@ describe('Utils tests', () => {
     });
 
     it('Should create intance from another intance', () => {
-        const user = create({name: 'bob'}, User);
+        const user = create({ name: 'bob' }, User);
         expect(user).toBeInstanceOf(User);
         const copy = create(user);
         expect(copy).not.toBe(user);
@@ -48,7 +48,7 @@ describe('Utils tests', () => {
     });
 
     it('Should throw error for required fields', () => {
-        const valid = new RequiredTest({ name: 'bob'});
+        const valid = new RequiredTest({ name: 'bob' });
         expect(() => new RequiredTest({})).toThrowError();
     });
 
@@ -59,16 +59,16 @@ describe('Utils tests', () => {
 
         const specialPayload = 'testàáâäãåā';
         const specialEncode = b64Encode(specialPayload);
-        expect(specialEncode).toEqual('dGVzdCVDMyVBMCVDMyVBMSVDMyVBMiVDMyVBNCVDMyVBMyVDMyVBNSVDNCU4MQ==')
+        expect(specialEncode).toEqual('dGVzdMOgw6HDosOkw6PDpcSB')
     });
 
-    it('Should decode from b64', ()=> {
-        const result = b64Decode('dGVzdCVDMyVBMCVDMyVBMSVDMyVBMiVDMyVBNCVDMyVBMyVDMyVBNSVDNCU4MQ==')
+    it('Should decode from b64', () => {
+        const result = b64Decode('dGVzdMOgw6HDosOkw6PDpcSB')
         expect(result).toEqual('testàáâäãåā');
     });
 
     it('Should gen key', async () => {
-        const key = await genKey();
+        const key = await genKey('');
         expect(key).not.toBeNull();
     })
 });

@@ -1,6 +1,6 @@
-export { OauthConfig } from '@/types';
 export { OauthProvider } from '@/components';
-export { getTokenStorage } from '@/services';
-
+export { getOathRequestService, getTokenStorage } from '@/services';
+export type { OauthRequesService, OauthResponseService, TokenStorgeType } from '@/services';
+export { OauthConfig } from '@/types';
 export type { SetupConfig } from '@/types';
-export type { TokenStorgeType } from '@/services'
+

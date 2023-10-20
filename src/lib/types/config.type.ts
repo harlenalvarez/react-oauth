@@ -1,13 +1,15 @@
 import { create, isRequired } from "@/utils";
+import { Optional } from '@practicaljs/ts-kit';
 
-export type OauthConfigProps = Omit<OauthConfig, 'redirectUrl' | 'scopes'> & { redirectUri?:string, scopes?: string[] }
+export type OauthConfigProps = Omit<OauthConfig, 'redirectUrl' | 'scopes'> & { redirectUri?: string, scopes?: string[] }
 
 export class OauthConfig {
     clientId: string;
     authEndpoint: string;
     tokenEndpoint: string;
     scopes?: string;
-    
+    theme: 'light' | 'dark' = 'dark'
+
     private redirectUri?: string;
     get redirectUrl() {
         const url = new URL(this.redirectUri || '')
@@ -15,12 +17,12 @@ export class OauthConfig {
         return url.href
     }
 
-    constructor(obj?: OauthConfigProps) {
+    constructor(obj?: Optional<OauthConfigProps, 'theme'>) {
         this.clientId = obj?.clientId || '';
         this.authEndpoint = obj?.authEndpoint || '';
         this.tokenEndpoint = obj?.tokenEndpoint || '';
         this.redirectUri = obj?.redirectUri || window.location.origin;
-        if(obj?.scopes) {
+        if (obj?.scopes) {
             this.scopes = obj.scopes.join(' ');
         }
     }
