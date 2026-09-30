@@ -1,0 +1,27 @@
+.react-oauth-screen {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-block-size: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding-block: max(1.5rem, env(safe-area-inset-top)) max(1.5rem, env(safe-area-inset-bottom));
+  padding-inline: max(1.5rem, env(safe-area-inset-left)) max(1.5rem, env(safe-area-inset-right));
+  overflow-wrap: anywhere;
+  text-align: center;
+  color: var(--react-oauth-text-color, #172033);
+  background: var(--react-oauth-background-color, #fff);
+}
+
+@supports (min-height: 100dvh) {
+  .react-oauth-screen {
+    min-block-size: 100dvh;
+  }
+}
+
+.react-oauth-screen p {
+  max-inline-size: 40rem;
+  margin: 0;
+}

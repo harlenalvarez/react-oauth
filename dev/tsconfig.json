@@ -1,0 +1,8 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "composite": false
+  },
+  "include": ["router-adapters/**/*", "../src/lib/css.d.ts"],
+  "exclude": []
+}

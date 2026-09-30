@@ -1,0 +1,49 @@
+name: Publish to npm
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Fetch main for release validation
+        run: git fetch origin main:refs/remotes/origin/main
+      - name: Validate release tag and package
+        run: node scripts/release.mjs validate
+      - run: npm ci
+      - run: npm run test:deploy
+      - run: npm run test:release
+      - run: npm run build
+      - run: npm run check:router-examples
+      - name: Verify the package and consumer installation
+        id: package
+        run: npm run check:package
+      - name: Check whether the version is already published
+        id: registry
+        run: node scripts/release.mjs check-published
+      - name: Publish the validated tarball with OIDC
+        if: steps.registry.outputs.published == 'false'
+        env:
+          PACKAGE_TARBALL: ${{ steps.package.outputs.tarball }}
+        run: npm publish "$PACKAGE_TARBALL" --access public --tag latest --registry https://registry.npmjs.org

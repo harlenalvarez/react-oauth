@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { b64Decode, b64Encode, create, genKey, isRequired } from './index';
+import { b64Decode, b64Encode, create, isRequired } from './index';
 
 class User {
     name!: string
@@ -67,8 +67,4 @@ describe('Utils tests', () => {
         expect(result).toEqual('testàáâäãåā');
     });
 
-    it('Should gen key', async () => {
-        const key = await genKey('');
-        expect(key).not.toBeNull();
-    })
 });

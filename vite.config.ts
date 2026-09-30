@@ -1,6 +1,5 @@
 /// <reference types="vitest" />
 import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react-swc'
 import dts from 'vite-plugin-dts'
 import path from 'node:path'
 import svgr from 'vite-plugin-svgr'
@@ -10,30 +9,32 @@ import css from 'vite-plugin-css-injected-by-js'
 export default defineConfig({
   plugins: [
     svgr(),
-    react(),
     css(),
     dts({
       insertTypesEntry: true,
+      bundleTypes: true,
       include: ['src/lib/'],
     })
   ],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src/lib"),
+      '@huddle-ai/auth': path.resolve(import.meta.dirname, './src/lib/index.ts'),
+      "@": path.resolve(import.meta.dirname, "./src/lib"),
     }
   },
   build: {
     lib: {
-      entry: path.resolve(__dirname, './src/lib/index.ts'),
+      entry: path.resolve(import.meta.dirname, './src/lib/index.ts'),
       name: 'ReactOauth',
       fileName: 'react-oauth',
     },
     rollupOptions: {
-      external: ['react', 'react-dom'],
+      external: (id) => /^(react|react-dom)(\/|$)/.test(id),
       output: {
         globals: {
           react: 'react',
           'react-dom': 'ReactDOM',
+          'react/jsx-runtime': 'ReactJSXRuntime',
         },
       },
     },

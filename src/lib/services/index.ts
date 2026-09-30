@@ -1,3 +1,3 @@
-export * from './oauth-request';
-export * from './oauth-response';
+export * from './auth-client/AuthClient';
+export * from './auth-client/normalizeAuthConfig';
 export * from './token-storage';

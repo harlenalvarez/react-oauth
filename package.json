@@ -1,10 +1,10 @@
 {
-  "name": "@practicaljs/react-oauth",
-  "private": true,
-  "version": "0.0.0",
+  "name": "@huddle-ai/auth",
+  "version": "0.1.0",
   "type": "module",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/react-oauth.js",
       "require": "./dist/react-oauth.umd.cjs"
     }
@@ -13,32 +13,34 @@
   "module": "dist/react-oauth.js",
   "types": "dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "docs"
   ],
   "scripts": {
     "start": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "prepack": "json -f package.json -I -e \"delete this.devDependencies; delete this.dependencies\"",
-    "postpublish": "git checkout ./package.json",
     "test": "vitest",
-    "test:deploy": "vitest run"
-  },
-  "dependencies": {
-    "@practicaljs/ts-kit": "^0.1.1",
-    "react": ">=17.x",
-    "react-dom": ">=17.x"
+    "test:deploy": "vitest run",
+    "check:router-examples": "tsc --noEmit -p dev/tsconfig.json",
+    "dev:mock": "node dev/mock-oauth-server.mjs",
+    "test:release": "node --test scripts/release.node-test.mjs",
+    "check:package": "node scripts/check-package.mjs"
   },
   "devDependencies": {
+    "@microsoft/api-extractor": "^7.59.3",
+    "@tanstack/react-router": "^1.170.36",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "@vitejs/plugin-react-swc": "4.3.3",
     "jsdom": "30.1.1",
     "json": "11.0.0",
-    "typescript": "7.0.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-router-dom": "^6.2.1",
+    "typescript": "^6.0.3",
     "vite": "8.3.1",
     "vite-plugin-css-injected-by-js": "5.0.2",
     "vite-plugin-dts": "5.1.1",
@@ -46,7 +48,15 @@
     "vitest": "^5.0.2"
   },
   "peerDependencies": {
-    "react": ">=17.x",
-    "react-dom": ">=17.x"
+    "react": ">=19.0.0"
+  },
+  "description": "React OAuth 2.0 authorization code flow with PKCE.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/harlenalvarez/react-oauth.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   }
 }

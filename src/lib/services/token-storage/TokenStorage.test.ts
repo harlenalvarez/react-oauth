@@ -1,130 +1,57 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getTokenStorage } from './TokenStorage';
 
-const mockStorage = (returnValue: string) => {
-  const { setItem, getItem, removeItem } = Storage.prototype
-  Storage.prototype.setItem = vi.spyOn(Storage.prototype, 'setItem') as any;
-  Storage.prototype.getItem = vi.spyOn(Storage.prototype, 'getItem') as any;
-  Storage.prototype.removeItem = vi.spyOn(Storage.prototype, 'removeItem') as any;
+describe('Token storage', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => vi.restoreAllMocks());
 
-  return () => {
-    Storage.prototype.setItem = setItem;
-    Storage.prototype.getItem = getItem;
-    Storage.prototype.removeItem = removeItem;
-  }
-}
-
-describe('Token Storage', () => {
-  beforeAll(() => {
-    vi.stubGlobal('isSecureContext', true);
+  it('returns one storage instance per client id', () => {
+    expect(getTokenStorage('123')).toBe(getTokenStorage('123'));
+    expect(getTokenStorage('123')).not.toBe(getTokenStorage('234'));
   });
 
-  it('Should create an instance per client id', () => {
-    const client = getTokenStorage('123');
-    const sameClient = getTokenStorage('123');
-    const difClient = getTokenStorage('234');
+  it('stores the verifier and challenge in client-namespaced local storage', () => {
+    const storage = getTokenStorage('123');
+    storage.Verifier = 'verifier';
+    storage.Challenge = 'challenge';
 
-    expect(client).toBe(sameClient);
-    expect(client).not.toBe(difClient);
+    expect(localStorage.getItem('react-oauth:pkce-verifier:123')).toBe('verifier');
+    expect(localStorage.getItem('react-oauth:pkce-challenge:123')).toBe('challenge');
+
+    storage.Verifier = '';
+    storage.Challenge = '';
+    expect(localStorage.getItem('react-oauth:pkce-verifier:123')).toBeNull();
+    expect(localStorage.getItem('react-oauth:pkce-challenge:123')).toBeNull();
   });
 
-  it('Should encryp values', async () => {
-    const sample = 'value to be encoded';
-    const client = getTokenStorage('123');
-    const result = await client.Encrypt(sample);
-    expect(result).toContain(`ÁyNñ%C\u009c\u0095`);
+  it('stores and retrieves tokens as plain namespaced values', async () => {
+    const storage = getTokenStorage('123');
+    await storage.setAccessToken('access');
+    await storage.setRefreshToken('refresh');
+    await storage.setIdToken('identity');
+
+    expect(JSON.parse(localStorage.getItem('react-oauth:tokens:123') ?? 'null')).toEqual({
+      accessToken: 'access',
+      tokenType: 'Bearer',
+      expiresAt: 0,
+      refreshToken: 'refresh',
+      idToken: 'identity',
+    });
+    await expect(storage.getAccessToken()).resolves.toBe('access');
+    await expect(storage.getRefreshToken()).resolves.toBe('refresh');
+    await expect(storage.getIdToken()).resolves.toBe('identity');
   });
 
-  it('Should decrupt values', async () => {
-    const sample = 'value 1';
-    const client = getTokenStorage('123');
-    const result = await client.Encrypt(sample);
-    const decrypted = await client.Decrypt(result);
-    expect(decrypted).toBe('value 1');
+  it('removes token values when cleared', async () => {
+    const storage = getTokenStorage('123');
+    await storage.setAccessToken('access');
+    await storage.setRefreshToken('refresh');
+    await storage.setIdToken('identity');
+
+    await storage.setAccessToken('');
+    await storage.setRefreshToken('');
+    await storage.setIdToken('');
+
+    expect(localStorage.getItem('react-oauth:tokens:123')).toBeNull();
   });
-
-  it('Should set and get Verifier', () => {
-    const verifier = 'test_verifier';
-    const resetStorage = mockStorage(verifier);
-
-    const tokenStorage = getTokenStorage('123');
-    tokenStorage.Verifier = verifier;
-    expect(localStorage.setItem).toHaveBeenCalledTimes(1);
-    expect(localStorage.setItem).toHaveBeenCalledWith('PKCE_Verifier', verifier);
-    const result = tokenStorage.Verifier;
-    expect(result).toBe(verifier);
-
-    //Check that it removes it
-    tokenStorage.Verifier = '';
-    expect(localStorage.removeItem).toHaveBeenCalledTimes(1);
-    resetStorage();
-  });
-
-  it('Should set and get challenge', () => {
-    const challenge = 'test_challenge';
-    const resetStorage = mockStorage(challenge);
-    expect(localStorage.setItem).toHaveBeenCalledTimes(0);
-    const service = getTokenStorage('123');
-    service.Challenge = challenge;
-    expect(localStorage.setItem).toHaveBeenCalledTimes(1);
-    expect(localStorage.setItem).toHaveBeenCalledWith('PKCE_Challenge', challenge);
-
-    const savedChallenge = service.Challenge;
-    expect(savedChallenge).toBe(challenge);
-    service.Challenge = '';
-    expect(localStorage.removeItem).toHaveBeenCalledTimes(1);
-    resetStorage();
-  });
-
-  it('Should get set access token', async () => {
-    const accessToken = 'access_token';
-    const services = getTokenStorage('123');
-    const encryptedToken = await services.Encrypt(accessToken);
-    const resetStorage = mockStorage(encryptedToken);
-
-    await services.setAccessToken(accessToken);
-    expect(localStorage.setItem).toHaveBeenCalledTimes(1);
-    expect(localStorage.setItem).toHaveBeenCalledWith('AccessToken_123', encryptedToken);
-    const savedToken = await services.getAccessToken();
-    expect(savedToken).toBe(accessToken);
-    await services.setAccessToken('');
-    expect(localStorage.removeItem).toHaveBeenCalledTimes(1);
-    resetStorage();
-  });
-
-  it('Should get set refresh token', async () => {
-    const refreshToken = 'refesh_token';
-    const services = getTokenStorage('123');
-    const encryptedToken = await services.Encrypt(refreshToken);
-    const reset = mockStorage(encryptedToken);
-    await services.setRefreshToken(refreshToken);
-    expect(localStorage.setItem).toHaveBeenCalledTimes(1);
-    expect(localStorage.setItem).toHaveBeenCalledWith('RefreshToken_123', encryptedToken);
-    const saved = await services.getRefreshToken();
-    expect(saved).toBe(refreshToken)
-    await services.setRefreshToken('')
-    expect(localStorage.removeItem).toHaveBeenCalledTimes(1)
-    expect(localStorage.removeItem).toHaveBeenCalledWith('RefreshToken_123')
-    reset();
-  });
-
-  it('Should get set idToken', async () => {
-    const idToken = 'id_token';
-    const services = getTokenStorage('123');
-    const encryptedToken = await services.Encrypt(idToken)
-    const reset = mockStorage(encryptedToken);
-    await services.setIdToken(idToken);
-    expect(localStorage.setItem).toHaveBeenCalledTimes(1);
-    expect(localStorage.setItem).toHaveBeenCalledWith('IdToken_123', encryptedToken);
-    const saved = await services.getIdToken();
-    expect(saved).toBe(idToken);
-    await services.setIdToken('');
-    expect(localStorage.removeItem).toHaveBeenCalledTimes(1);
-    expect(localStorage.removeItem).toHaveBeenCalledWith('IdToken_123');
-    reset();
-  });
-
-  afterAll(() => {
-    vi.unstubAllGlobals();
-  });
-})
+});

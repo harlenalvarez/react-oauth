@@ -1,2 +1,2 @@
 export { getTokenStorage } from './TokenStorage';
-export type { TokenStorgeType } from './TokenStorage';
+export type { TokenStorage } from './TokenStorage';

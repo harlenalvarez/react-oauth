@@ -1,143 +1,133 @@
-import { genKey } from "@/utils";
+import type { StoredTokenRecord } from '@/types';
 
 export class TokenStorage {
+  readonly clientId: string;
+  private readonly recordKey: string;
+  private readonly verifierKey: string;
+  private readonly challengeKey: string;
 
-  private verifierKey = 'PKCE_Verifier';
-  private challengeKey = 'PKCE_Challenge';
-  private accessTokenKey: string;
-  private refreshTokenKey: string;
-  private idTokenKey: string;
-  private tokenExpKey: string;
-  private clientId: string;
-  private encoder: TextEncoder;
-  private decoder: TextDecoder;
-  private iv: Uint8Array;
-  private genKey: string;
-
-  constructor(args: { clientId: string }) {
+  constructor(args: { readonly clientId: string }) {
     this.clientId = args.clientId;
-    this.accessTokenKey = `AccessToken_${this.clientId}`;
-    this.refreshTokenKey = `RefreshToken_${this.clientId}`;
-    this.idTokenKey = `IdToken_${this.clientId}`;
-    this.tokenExpKey = `Exptoken_${this.clientId}`;
-    this.encoder = new TextEncoder();
-    this.decoder = new TextDecoder();
-    this.iv = Uint8Array.from(this.accessTokenKey, x => x.charCodeAt(0));
-    this.genKey = `CODE_${this.clientId}`;
+    const namespace = encodeURIComponent(this.clientId);
+    this.recordKey = `react-oauth:tokens:${namespace}`;
+    this.verifierKey = `react-oauth:pkce-verifier:${namespace}`;
+    this.challengeKey = `react-oauth:pkce-challenge:${namespace}`;
+  }
+
+  save(record: StoredTokenRecord): void {
+    localStorage.setItem(this.recordKey, JSON.stringify(record));
+  }
+
+  getRecord(): StoredTokenRecord | null {
+    const raw = localStorage.getItem(this.recordKey);
+    if (raw === null) return null;
+    try {
+      const value: unknown = JSON.parse(raw);
+      return isStoredTokenRecord(value) ? value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  clear(): void {
+    localStorage.removeItem(this.recordKey);
   }
 
   set Verifier(value: string) {
-    if (!value) {
-      localStorage.removeItem(this.verifierKey);
-      return;
-    }
-    localStorage.setItem(this.verifierKey, value);
+    setOptionalStorageValue(this.verifierKey, value);
   }
 
-  get Verifier() {
-    return localStorage.getItem(this.verifierKey) || '';
+  get Verifier(): string {
+    return localStorage.getItem(this.verifierKey) ?? '';
   }
 
   set Challenge(value: string) {
-    if (!value) {
-      localStorage.removeItem(this.challengeKey);
-      return;
-    }
-    localStorage.setItem(this.challengeKey, value);
+    setOptionalStorageValue(this.challengeKey, value);
   }
 
-  get Challenge() {
-    return localStorage.getItem(this.challengeKey) || '';
+  get Challenge(): string {
+    return localStorage.getItem(this.challengeKey) ?? '';
+  }
+
+  async setAccessToken(value: string): Promise<void> {
+    this.updateRecord({ accessToken: value });
+  }
+
+  async getAccessToken(): Promise<string> {
+    return this.getRecord()?.accessToken ?? '';
+  }
+
+  async setRefreshToken(value: string): Promise<void> {
+    this.updateRecord({ refreshToken: value });
+  }
+
+  async getRefreshToken(): Promise<string> {
+    return this.getRecord()?.refreshToken ?? '';
+  }
+
+  async setIdToken(value: string): Promise<void> {
+    this.updateRecord({ idToken: value });
+  }
+
+  async getIdToken(): Promise<string> {
+    return this.getRecord()?.idToken ?? '';
   }
 
   set TokenExpiration(value: number) {
-    localStorage.setItem(this.tokenExpKey, `${value || 0}`);
+    const current = this.getRecord();
+    if (current !== null) this.save({ ...current, expiresAt: value });
   }
 
-  get TokenExpiration() {
-    return Number(localStorage.getItem(this.tokenExpKey) || 0);
+  get TokenExpiration(): number {
+    return this.getRecord()?.expiresAt ?? 0;
   }
 
-  set GenCode(value: string) {
-    if (!value) {
-      localStorage.removeItem(this.genKey);
+  set GenCode(_value: string) {
+    // Kept as a compatibility setter; authorization codes are never persisted.
+  }
+
+  get GenCode(): string {
+    return '';
+  }
+
+  private updateRecord(update: Partial<StoredTokenRecord>): void {
+    const current = this.getRecord();
+    if (current === null) {
+      if (update.accessToken === undefined || update.accessToken === '') return;
+      this.save({ accessToken: update.accessToken, tokenType: 'Bearer', expiresAt: 0 });
       return;
     }
-    localStorage.setItem(this.genKey, value);
-  }
-
-  get GenCode() {
-    return localStorage.getItem(this.genKey) || '';
-  }
-
-  async setAccessToken(value: string) {
-    await this.setTokenByKey(this.accessTokenKey, value)
-  }
-
-  async getAccessToken() {
-    return await this.getTokenByKey(this.accessTokenKey)
-  }
-
-  async Encrypt(value: string) {
-    if (!isSecureContext) return value;
-    const encoded = this.encoder.encode(value);
-    const key = await genKey(this.GenCode);
-    const encryptedValue = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: this.iv }, key, encoded);
-    const encryptedString = String.fromCharCode(...new Uint8Array(encryptedValue));
-    return encryptedString
-  }
-
-  async Decrypt(value: string) {
-    if (!isSecureContext) return value;
-    const encoded = Uint8Array.from(value, x => x.charCodeAt(0));
-    const key = await genKey(this.GenCode);
-    const decryptedValue = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: this.iv }, key, encoded);
-    return this.decoder.decode(decryptedValue);
-  }
-
-  async setRefreshToken(value: string) {
-    await this.setTokenByKey(this.refreshTokenKey, value)
-  }
-
-  async getRefreshToken() {
-    return await this.getTokenByKey(this.refreshTokenKey)
-  }
-
-  async setIdToken(value: string) {
-    await this.setTokenByKey(this.idTokenKey, value);
-  }
-  async getIdToken() {
-    return await this.getTokenByKey(this.idTokenKey);
-  }
-
-  async setTokenByKey(key: string, value: string) {
-    if (!value) {
-      localStorage.removeItem(key);
+    const next = { ...current, ...update };
+    if (update.accessToken === '') {
+      this.clear();
       return;
     }
-    const encrypted = await this.Encrypt(value);
-    localStorage.setItem(key, encrypted);
-  }
-
-  async getTokenByKey(key: string) {
-    const savedToken = localStorage.getItem(key) || '';
-    if (!savedToken) return savedToken;
-
-    const decrypted = await this.Decrypt(savedToken);
-    return decrypted;
+    this.save(next);
   }
 }
 
-const storageMap = new Map<string, TokenStorage>()
+function setOptionalStorageValue(key: string, value: string): void {
+  if (value.length === 0) localStorage.removeItem(key);
+  else localStorage.setItem(key, value);
+}
 
-// Only want to export the type not the actual class to prevent newing this service directly
-export type TokenStorgeType = TokenStorage
-export const getTokenStorage = (clientId: string): TokenStorgeType => {
-  const client = storageMap.get(clientId)
-  if (client) return client;
+function isStoredTokenRecord(value: unknown): value is StoredTokenRecord {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.accessToken === 'string' && record.accessToken.length > 0 &&
+    typeof record.tokenType === 'string' && record.tokenType.toLowerCase() === 'bearer' &&
+    typeof record.expiresAt === 'number' && Number.isFinite(record.expiresAt) &&
+    (record.refreshToken === undefined || typeof record.refreshToken === 'string') &&
+    (record.idToken === undefined || typeof record.idToken === 'string') &&
+    (record.grantedScopes === undefined || (Array.isArray(record.grantedScopes) && record.grantedScopes.every((scope: unknown) => typeof scope === 'string')));
+}
 
+const storageMap = new Map<string, TokenStorage>();
+
+export function getTokenStorage(clientId: string): TokenStorage {
+  const existing = storageMap.get(clientId);
+  if (existing !== undefined) return existing;
   const storage = new TokenStorage({ clientId });
   storageMap.set(clientId, storage);
   return storage;
 }
-
