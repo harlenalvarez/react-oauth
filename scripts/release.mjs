@@ -3,6 +3,14 @@ import { spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
+export function parsePackedPackage(output) {
+  const result = JSON.parse(output);
+  // npm 11 returns an array; npm 12 keys the results by package name.
+  const packages = Array.isArray(result) ? result : Object.values(result);
+  assert.equal(packages.length, 1, 'Expected exactly one packed package.');
+  return packages[0];
+}
+
 export function validateRelease(manifest, { refType, tag, cwd = process.cwd() }) {
   assert.equal(refType, 'tag', 'Publishing requires a version tag.');
   assert.match(tag ?? '', /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/, 'Only stable vX.Y.Z tags may publish.');

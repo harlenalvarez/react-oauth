@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { appendFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { parsePackedPackage } from './release.mjs';
 
 const root = process.cwd();
 const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
@@ -17,7 +18,7 @@ function run(command, args, cwd = root, capture = false) {
 }
 
 try {
-  const [packed] = JSON.parse(run('npm', ['pack', '--json', '--pack-destination', scratch], root, true));
+  const packed = parsePackedPackage(run('npm', ['pack', '--json', '--pack-destination', scratch], root, true));
   assert.equal(packed.name, '@huddle-ai/auth');
   assert.equal(packed.version, manifest.version);
   const files = new Set(packed.files.map((file) => file.path));

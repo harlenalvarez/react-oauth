@@ -4,7 +4,7 @@ The npm package is public. The GitHub repository stays at `harlenalvarez/react-o
 
 ## Validation
 
-Use Node 24.15 or later in the Node 24 release line, with npm 11.5.1 or later. From the repository root:
+CI uses Node 24. Locally, use Node 24.15 or later in the Node 24 release line, or Node 26, with npm 11.5.1 or later. The package check supports both npm 11 and npm 12; switching from Node 26 to Node 24 is optional. From the repository root:
 
 ```sh
 npm ci

@@ -4,12 +4,22 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { isPublished, validateRelease } from './release.mjs';
+import { isPublished, parsePackedPackage, validateRelease } from './release.mjs';
 
 const manifest = {
   name: '@huddle-ai/auth', version: '0.1.0',
   publishConfig: { access: 'public', registry: 'https://registry.npmjs.org' },
 };
+
+test('package metadata supports npm 11 and npm 12 pack output', () => {
+  const packed = { name: manifest.name, version: manifest.version, filename: 'huddle-ai-auth-0.1.0.tgz', files: [] };
+  assert.deepEqual(parsePackedPackage(JSON.stringify([packed])), packed);
+  assert.deepEqual(parsePackedPackage(JSON.stringify({ [manifest.name]: packed })), packed);
+  assert.throws(() => parsePackedPackage('[]'), /exactly one/);
+  assert.throws(() => parsePackedPackage('{}'), /exactly one/);
+  assert.throws(() => parsePackedPackage(JSON.stringify([packed, packed])), /exactly one/);
+  assert.throws(() => parsePackedPackage('not JSON'), SyntaxError);
+});
 
 test('release tags must match the public package and point to main history', () => {
   const cwd = mkdtempSync(join(tmpdir(), 'huddle-auth-release-'));
