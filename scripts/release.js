@@ -60,7 +60,7 @@ async function main() {
       break;
     }
     default:
-      throw new Error('Usage: node scripts/release.mjs validate|check-published');
+      throw new Error('Usage: node scripts/release.js validate|check-published');
   }
 }
 

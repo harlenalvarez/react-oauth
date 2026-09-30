@@ -30,7 +30,7 @@ jobs:
       - name: Fetch main for release validation
         run: git fetch origin main:refs/remotes/origin/main
       - name: Validate release tag and package
-        run: node scripts/release.mjs validate
+        run: node scripts/release.js validate
       - run: npm ci
       - run: npm run test:deploy
       - run: npm run test:release
@@ -41,7 +41,7 @@ jobs:
         run: npm run check:package
       - name: Check whether the version is already published
         id: registry
-        run: node scripts/release.mjs check-published
+        run: node scripts/release.js check-published
       - name: Publish the validated tarball with OIDC
         if: steps.registry.outputs.published == 'false'
         env:

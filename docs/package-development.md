@@ -14,7 +14,7 @@ The last command creates `huddle-ai-auth-0.1.0.tgz`. In a separate consumer app,
 npm install /absolute/path/react-oauth/huddle-ai-auth-0.1.0.tgz
 ```
 
-The consumer needs React 19+ and its normal React DOM renderer. It does not need the library's router fixtures, test tools, or build tools. TypeScript declarations, component styles, and these guides are included in the package. Rebuild, repack, and reinstall after changing the library; the installed tarball is a snapshot.
+The consumer needs React 19+ and its normal React DOM renderer. The package ships ESM for modern Vite applications, with bundled TypeScript declarations. Component styles load automatically; there is no separate CSS import. The consumer does not need the library's router fixtures, test tools, or build tools. Rebuild, repack, and reinstall after changing the library; the installed tarball is a snapshot.
 
 For the repository's built-in consumer, run `npm run dev:mock` and `npm start` in separate terminals after `npm ci`. Open the Vite URL printed by the second command. This demo resolves the public package import directly to library source.
 

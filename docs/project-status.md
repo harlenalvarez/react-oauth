@@ -21,11 +21,11 @@ All stories in [`stories/oauth/`](../stories/oauth/README.md), including the opt
 
 ## Validation
 
-- `npm run build` succeeds and emits the library bundles and declaration files.
+- `npm run build` checks library and Vite configuration types and emits an ESM library bundle and bundled declarations. It uses Vite's Rolldown options and the official React plugin; React and its JSX runtime remain external.
 - `npm run test:deploy` passes 69 tests covering config normalization, PKCE request construction, state and callback handling, token storage and refresh, wrappers, profile behavior, shared layout-time route observation, abandoned stage work, real React Router and TanStack Router login/callback/logout and Back/Forward at root and nested bases, and ID-token validation.
 - `npm run check:router-examples` type-checks both router adapters and their integration examples.
-- `node --check dev/mock-oauth-server.mjs` succeeds.
-- `npm pack --dry-run` contains the package bundles, declarations, and consumer guides. React and its JSX runtime remain external; router fixtures are excluded. A separate consumer fixture verifies public imports and generic provider/hook types from a built tarball. The package is configured for public publication as `@huddle-ai/auth`; [local installation](package-development.md) uses a built tarball, and [releasing](releasing.md) describes initial setup and CI publication.
+- `node --check dev/mock-oauth-server.js` succeeds.
+- `npm run check:package` checks ESM-only package contents, verifies automatic styles and generic provider/hook types under Bundler and NodeNext resolution, and builds a separate Vite React consumer from the tarball. Router fixtures are excluded. The package is configured for public publication as `@huddle-ai/auth`; [local installation](package-development.md) uses a built tarball, and [releasing](releasing.md) describes initial setup and CI publication.
 - A browser smoke test completed login, callback exchange, protected project request, renewal, and SPA logout against the local fixture. The default error screen filled a 320-pixel viewport, wrapped long text without horizontal overflow, and grew vertically when needed.
 
 ## Security and release limits

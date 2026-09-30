@@ -1,8 +1,12 @@
 {
   "compilerOptions": {
-    "target": "ESNext",
+    "target": "ES2023",
     "useDefineForClassFields": true,
-    "lib": ["DOM", "DOM.Iterable", "ESNext"],
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "ES2023"
+    ],
     "allowJs": false,
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
@@ -14,13 +18,26 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": ["vitest/globals"],
+    "types": [
+      "vite/client"
+    ],
     "paths": {
-      "@huddle-ai/auth": ["./src/lib/index.ts"],
-      "@/*": ["./src/lib/*"]
-    }
+      "@huddle-ai/auth": [
+        "./src/lib/index.ts"
+      ],
+      "@/*": [
+        "./src/lib/*"
+      ]
+    },
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "allowArbitraryExtensions": true
   },
-  "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"],
-  "references": [{ "path": "./tsconfig.node.json" }]
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx"
+  ]
 }

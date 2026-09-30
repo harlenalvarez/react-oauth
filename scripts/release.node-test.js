@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { isPublished, parsePackedPackage, validateRelease } from './release.mjs';
+import { isPublished, parsePackedPackage, validateRelease } from './release.js';
 
 const manifest = {
   name: '@huddle-ai/auth', version: '0.1.0',

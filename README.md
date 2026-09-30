@@ -8,6 +8,8 @@ Install the public package after its first release:
 npm install @huddle-ai/auth
 ```
 
+The package ships ESM for modern Vite applications. React and its JSX runtime stay external, and built-in component styles load automatically; no separate CSS import is required.
+
 See the [getting-started guide](docs/getting-started.md) for the public API and the [project status](docs/project-status.md) for implementation scope and validation.
 
 ## Run the local consumer fixture

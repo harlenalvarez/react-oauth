@@ -1,14 +1,14 @@
-/// <reference types="vitest" />
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 import dts from 'vite-plugin-dts'
 import path from 'node:path'
-import svgr from 'vite-plugin-svgr'
 import css from 'vite-plugin-css-injected-by-js'
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [
-    svgr(),
+    react(),
     css(),
     dts({
       insertTypesEntry: true,
@@ -25,18 +25,11 @@ export default defineConfig({
   build: {
     lib: {
       entry: path.resolve(import.meta.dirname, './src/lib/index.ts'),
-      name: 'ReactOauth',
+      formats: ['es'],
       fileName: 'react-oauth',
     },
-    rollupOptions: {
+    rolldownOptions: {
       external: (id) => /^(react|react-dom)(\/|$)/.test(id),
-      output: {
-        globals: {
-          react: 'react',
-          'react-dom': 'ReactDOM',
-          'react/jsx-runtime': 'ReactJSXRuntime',
-        },
-      },
     },
   },
   test: {

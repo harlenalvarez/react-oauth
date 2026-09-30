@@ -1,10 +1,10 @@
 # Publishing @huddle-ai/auth
 
-The npm package is public. The GitHub repository stays at `harlenalvarez/react-oauth`, and its build artifacts retain their `react-oauth` filenames. React 19+ is the only runtime peer dependency.
+The npm package is public and ESM only, intended for modern Vite applications. The GitHub repository stays at `harlenalvarez/react-oauth`, and the JavaScript bundle remains `dist/react-oauth.js`. React 19+ is the only runtime peer dependency. Built-in component styles load automatically.
 
 ## Validation
 
-CI uses Node 24. Locally, use Node 24.15 or later in the Node 24 release line, or Node 26, with npm 11.5.1 or later. The package check supports both npm 11 and npm 12; switching from Node 26 to Node 24 is optional. From the repository root:
+CI tests Node 24 and Node 26; the publishing job uses Node 24. Locally, use Node 24.15 or later in the Node 24 release line, or Node 26, with npm 11.5.1 or later. The package check supports both npm 11 and npm 12; switching from Node 26 to Node 24 is optional. From the repository root:
 
 ```sh
 npm ci
@@ -15,7 +15,7 @@ npm run check:router-examples
 npm run check:package
 ```
 
-`check:package` creates a temporary tarball, checks its contents, and installs it into a separate consumer to verify ESM imports, CommonJS exports, and TypeScript declarations. It removes its temporary files locally; in GitHub Actions it retains the validated tarball for the publishing step.
+`check:package` creates a temporary tarball and installs it into a separate consumer. It verifies ESM-only contents, automatic component styling, TypeScript declarations under both Bundler and NodeNext resolution, and a Vite production build using the current project versions of Vite and the official React plugin. It removes its temporary files locally; in GitHub Actions it retains the validated tarball for the publishing step.
 
 CI runs these checks on pull requests and pushes to `main`. Publishing repeats all checks against the tagged commit.
 
