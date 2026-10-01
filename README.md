@@ -35,4 +35,21 @@ npm run check:package
 
 The package is configured for public npm publication. See [releasing](docs/releasing.md) for the first local publication and automated tag releases. React 19 or later is the only runtime peer dependency; build, router examples, and test tools are development dependencies. Internal auth navigation stays in the current document; the authorization server redirect and callback return still use browser navigation.
 
-After committing your changes on `main`, run `npm run release-tag` to bump the patch version, commit it, and push `main` and its matching version tag. GitHub Actions validates and publishes the release. Use `npm run release-tag -- minor` or `-- major` for a larger version bump.
+## Release a new version
+
+Commit your changes on `main` and make sure your working tree is clean and includes the latest changes from `origin/main`. Then run:
+
+```sh
+npm run release-tag
+```
+
+The command bumps the patch version in both package files, creates the release commit, pushes `main`, and creates and pushes the matching `vX.Y.Z` tag. You do not need to enter the version or tag yourself. GitHub Actions runs the release checks and publishes to npm under `latest`; check the **Publish to npm** workflow in GitHub Actions for the result.
+
+For a larger version bump, run one of these instead:
+
+```sh
+npm run release-tag -- minor
+npm run release-tag -- major
+```
+
+If a command fails, follow the recovery commands printed by the script instead of rerunning the version bump. See the [release guide](docs/releasing.md) for setup and troubleshooting.
