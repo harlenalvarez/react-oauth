@@ -53,23 +53,24 @@ The workflow validates the package and reports that `0.1.0` already exists, skip
 
 ## Subsequent releases
 
-Start with a clean, current `main` checkout. Update the version without creating a tag yet, so CI can validate the release commit before publication:
+Commit your changes on `main`, then run:
 
 ```sh
-npm version patch --no-git-tag-version
-git add package.json package-lock.json
-git commit -m "chore: release 0.1.1"
-git push origin main
+npm run release-tag
 ```
 
-If `main` requires pull requests, make the version change on a branch and merge it through the normal review process. After CI passes on the final `main` commit, tag that commit and push the tag:
+This bumps the patch version in `package.json` and `package-lock.json`, commits it as `chore: release X.Y.Z`, pushes `main`, creates the matching annotated `vX.Y.Z` tag, and pushes only that tag. It checks for a clean `main` checkout, fetches `origin/main`, and stops before changing the version if local `main` is behind or has diverged, or the next tag already exists. Committed local work ahead of `origin/main` is included in the push.
+
+For a larger release, choose the bump explicitly:
 
 ```sh
-git tag v0.1.1
-git push origin v0.1.1
+npm run release-tag -- minor
+npm run release-tag -- major
 ```
 
-Choose `minor` or `major` instead of `patch` when appropriate, and use the resulting version in the commit message and tag. The workflow accepts stable `vX.Y.Z` tags only, requires an exact match with `package.json`, and requires the commit to be reachable from `main`. Prerelease and build-metadata tags are rejected.
+The script stops on any failed command and preserves completed work. If a push fails, fix the error and follow the recovery commands it prints instead of rerunning the version bump. The command returns after pushing the tag; it does not wait for GitHub Actions. Both main CI and the publishing workflow run their checks, and publishing happens only after the tagged commit passes the publishing workflow's full validation.
+
+If `main` later requires pull requests, use the manual version-bump and merge process instead of this direct-push helper. The workflow accepts stable `vX.Y.Z` tags only, requires an exact match with `package.json`, and requires the commit to be reachable from `main`. Prerelease and build-metadata tags are rejected.
 
 The workflow publishes the checked tarball under `latest` using OIDC. An already published version is a successful skip; permission errors, registry failures, invalid release metadata, and failed validation stop the release. A retry after a successful publication therefore does not attempt to overwrite that version.
 

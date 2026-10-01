@@ -22,7 +22,8 @@
     "test:deploy": "vitest run",
     "check:router-examples": "tsc --noEmit -p dev/tsconfig.json",
     "dev:mock": "node dev/mock-oauth-server.js",
-    "test:release": "node --test scripts/release.node-test.js",
+    "test:release": "node --test scripts/release.node-test.js scripts/release-tag.node-test.js",
+    "release-tag": "node scripts/release-tag.js",
     "check:package": "node scripts/check-package.js",
     "check:types": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json"
   },

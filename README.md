@@ -34,3 +34,5 @@ npm run check:package
 ```
 
 The package is configured for public npm publication. See [releasing](docs/releasing.md) for the first local publication and automated tag releases. React 19 or later is the only runtime peer dependency; build, router examples, and test tools are development dependencies. Internal auth navigation stays in the current document; the authorization server redirect and callback return still use browser navigation.
+
+After committing your changes on `main`, run `npm run release-tag` to bump the patch version, commit it, and push `main` and its matching version tag. GitHub Actions validates and publishes the release. Use `npm run release-tag -- minor` or `-- major` for a larger version bump.
