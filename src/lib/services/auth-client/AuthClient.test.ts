@@ -430,7 +430,7 @@ describe('AuthClient login start', () => {
 
     const first = client.completeLogout();
     const second = client.completeLogout();
-    await expect(Promise.all([first, second])).resolves.toEqual(['/projects', '/projects']);
+    await expect(Promise.all([first, second])).resolves.toEqual([{ status: 'complete', returnTo: '/projects' }, { status: 'complete', returnTo: '/projects' }]);
     expect(events.slice(1)).toEqual(['start', 'complete']);
     expect(client.storage.getRecord()).toBeNull();
     expect(client.getSnapshot()).toMatchObject({ status: 'anonymous', profile: null, grantedScopes: null });

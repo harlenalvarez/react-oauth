@@ -20,6 +20,8 @@ export type AuthClientOptions<Profile = unknown> = {
   readonly clientId: string;
   readonly authorizationEndpoint: string;
   readonly tokenEndpoint: string;
+  readonly endSessionEndpoint?: string;
+  readonly postLogoutRedirectUri?: string;
   readonly scopes?: readonly string[];
   readonly appBaseUrl?: string;
   readonly redirectUri?: string;
@@ -111,6 +113,10 @@ export type TokenRunnerOptions = {
 export type LogoutOptions = {
   readonly returnTo?: string;
 };
+
+export type LogoutResult =
+  | { readonly status: 'redirecting' }
+  | { readonly status: 'complete'; readonly returnTo: string | null };
 
 export type AuthTransaction = {
   readonly clientId: string;

@@ -75,14 +75,17 @@ try {
 
   writeFileSync(join(consumer, 'consumer.tsx'), `
 import { createAuthClient, ReactAuthProvider, useAuth } from '@huddle-ai/auth';
-import type { AuthNavigationAdapter, AuthHookValue } from '@huddle-ai/auth';
+import type { AuthNavigationAdapter, AuthHookValue, LogoutResult } from '@huddle-ai/auth';
 type Profile = { email: string };
 const client = createAuthClient<Profile>({
   clientId: 'consumer',
+  endSessionEndpoint: 'https://identity.example.com/end-session',
+  postLogoutRedirectUri: '/logout',
   authorizationEndpoint: 'https://identity.example.com/authorize',
   tokenEndpoint: 'https://identity.example.com/token',
   loadProfile: async () => ({ email: 'consumer@example.com' }),
 });
+export const processLogout = (): Promise<LogoutResult> => client.completeLogout();
 const navigation: AuthNavigationAdapter = {
   getLocation: () => window.location.href,
   navigate: () => {},

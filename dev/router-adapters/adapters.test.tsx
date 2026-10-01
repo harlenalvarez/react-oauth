@@ -172,3 +172,59 @@ describe.each(['React Router', 'TanStack Router'] as const)('%s complete integra
     router.history.destroy();
   });
 });
+
+it('React Router completes provider logout on an explicit callback below its basename', async () => {
+  const callbackUri = `${window.location.origin}/workspace/session-ended`;
+  window.history.replaceState(null, '', '/workspace/session-ended?state=expected');
+  const client = createAuthClient({
+    clientId: `react-provider-${crypto.randomUUID()}`,
+    authorizationEndpoint: 'https://identity.example.com/authorize',
+    tokenEndpoint: 'https://identity.example.com/token',
+    endSessionEndpoint: 'https://identity.example.com/end-session',
+    appBaseUrl: `${window.location.origin}/workspace/`,
+    postLogoutRedirectUri: callbackUri,
+  });
+  sessionStorage.setItem(`react-oauth:logout:${encodeURIComponent(client.config.clientId)}`, JSON.stringify({
+    status: 'pending', callbackUri, state: 'expected', createdAt: Date.now(),
+  }));
+  function Shell() {
+    const navigation = useReactRouterAuthNavigation('/workspace');
+    return <ReactAuthProvider client={client} navigation={navigation}><span>Host</span></ReactAuthProvider>;
+  }
+  render(<BrowserRouter basename="/workspace"><Shell /></BrowserRouter>);
+  expect(await screen.findByText('Logged out.')).toBeInTheDocument();
+  await waitFor(() => expect(window.location.search).toBe(''));
+  expect(window.location.pathname).toBe('/workspace/session-ended');
+  expect(screen.queryByText('Host')).not.toBeInTheDocument();
+});
+
+it('TanStack Router completes provider logout on an explicit callback below its basepath', async () => {
+  vi.stubGlobal('scrollTo', vi.fn());
+  const callbackUri = `${window.location.origin}/workspace/session-ended`;
+  window.history.replaceState(null, '', '/workspace/session-ended?state=expected');
+  const client = createAuthClient({
+    clientId: `tanstack-provider-${crypto.randomUUID()}`,
+    authorizationEndpoint: 'https://identity.example.com/authorize',
+    tokenEndpoint: 'https://identity.example.com/token',
+    endSessionEndpoint: 'https://identity.example.com/end-session',
+    appBaseUrl: `${window.location.origin}/workspace/`,
+    postLogoutRedirectUri: callbackUri,
+  });
+  sessionStorage.setItem(`react-oauth:logout:${encodeURIComponent(client.config.clientId)}`, JSON.stringify({
+    status: 'pending', callbackUri, state: 'expected', createdAt: Date.now(),
+  }));
+  function Shell() {
+    return <ReactAuthProvider client={client} navigation={navigation}><Outlet /></ReactAuthProvider>;
+  }
+  const root = createRootRoute({ component: Shell });
+  const callback = createRoute({ getParentRoute: () => root, path: '/session-ended', component: () => <span>Host</span> });
+  const router = createRouter({ basepath: '/workspace', routeTree: root.addChildren([callback]), history: createBrowserHistory() });
+  const navigation = adaptTanStackRouter(router);
+  const mounted = render(<RouterProvider router={router} />);
+  expect(await screen.findByText('Logged out.')).toBeInTheDocument();
+  await waitFor(() => expect(window.location.search).toBe(''));
+  expect(window.location.pathname).toBe('/workspace/session-ended');
+  expect(screen.queryByText('Host')).not.toBeInTheDocument();
+  mounted.unmount();
+  router.history.destroy();
+});

@@ -9,6 +9,7 @@ import type {
   OAuthProtocolError,
   OAuthTokenResponse,
   LogoutOptions,
+  LogoutResult,
   AuthTransaction,
   AuthLifecycleHooks,
   AuthStage,
@@ -16,6 +17,7 @@ import type {
   StoredTokenRecord,
   VerifiedIdTokenClaims,
 } from '@/types';
+import { LogoutTransactionStorage, logoutTransactionLifetimeMs } from '../token-storage/LogoutTransactionStorage';
 import { AuthTransactionStorage } from '../token-storage/AuthTransactionStorage';
 import { getTokenStorage, type TokenStorage } from '../token-storage/TokenStorage';
 import { OidcIdentity, OidcKeySetError, OidcValidationError } from '../oidc-identity/OidcIdentity';
@@ -50,7 +52,9 @@ export class AuthClient<Profile = unknown> {
   private loginStart: Promise<void> | null = null;
   private loginCallback: { readonly location: string; readonly promise: Promise<string> } | null = null;
   private loginStage: Promise<void> | null = null;
-  private logoutComplete: Promise<string> | null = null;
+  private logoutComplete: { readonly location: string; readonly promise: Promise<LogoutResult> } | null = null;
+  private readonly logoutTransactions: LogoutTransactionStorage;
+  private observedLocation: string;
   private navigationAdapter: AuthNavigationAdapter | undefined;
   private navigationObservers = 0;
   private readonly routeListeners = new Set<() => void>();
@@ -61,14 +65,17 @@ export class AuthClient<Profile = unknown> {
   constructor(config: NormalizedAuthConfig<Profile>) {
     this.config = config;
     this.transactions = new AuthTransactionStorage(config.clientId);
+    this.logoutTransactions = new LogoutTransactionStorage(config.clientId);
     this.storage = getTokenStorage(config.clientId);
     this.oidcIdentity = config.oidc === undefined ? null : new OidcIdentity(config.oidc, config.clientId);
     this.routeSnapshot = { stage: this.readAuthRoute(), entry: 0 };
+    this.observedLocation = this.getCurrentLocation();
   }
 
   acquireToken = async (options: AcquireTokenOptions = {}): Promise<void> => {
     const current = this.getCurrentLocation();
     const returnTo = isAllowedReturnTo(options.returnTo ?? current, this.config);
+    this.logoutTransactions.clear();
     this.transactions.saveReturnTo(returnTo);
     try {
       await this.navigateTo(this.config.routeUrls.login);
@@ -163,14 +170,18 @@ export class AuthClient<Profile = unknown> {
       return current.origin === route.origin && current.pathname === route.pathname;
     };
     if (matches(this.config.routeUrls.login)) return 'login';
-    if (matches(this.config.routeUrls.logout)) return 'logout';
+    if (matches(this.config.routeUrls.logout) ||
+      (this.config.postLogoutRedirectUri !== undefined && matches(this.config.postLogoutRedirectUri))) return 'logout';
     if (matches(this.config.routeUrls.loginCallback) || matches(this.config.redirectUri)) return 'loginCallback';
     return null;
   }
 
   private notifyRouteChange = (): void => {
     const next = this.readAuthRoute();
-    if (next === this.routeSnapshot.stage) return;
+    const location = this.getCurrentLocation();
+    const logoutLocationChanged = next === 'logout' && location !== this.observedLocation;
+    this.observedLocation = location;
+    if (next === this.routeSnapshot.stage && !logoutLocationChanged) return;
     if (this.routeSnapshot.stage !== null) {
       this.authEpoch += 1;
       this.loginStart = null;
@@ -180,6 +191,7 @@ export class AuthClient<Profile = unknown> {
     }
     this.routeSnapshot = { stage: next, entry: this.routeSnapshot.entry + 1 };
     this.routeListeners.forEach((listener) => listener());
+    if (next === null && this.initializeRequest === null) void this.initialize();
   };
 
   private commitNavigation(to: string, replace: boolean): void | Promise<void> {
@@ -195,19 +207,30 @@ export class AuthClient<Profile = unknown> {
 
   logout = async (options: LogoutOptions = {}): Promise<void> => {
     const returnTo = isAllowedReturnTo(options.returnTo ?? new URL(this.config.appBaseUrl).pathname, this.config);
+    const entry = this.routeSnapshot;
+    this.logoutTransactions.clear();
     this.transactions.saveReturnTo(returnTo);
     try {
       await this.navigateTo(this.config.routeUrls.logout);
+      // A new explicit action on the completion page is a new stage, even at the same URL.
+      if (entry === this.routeSnapshot && this.readAuthRoute() === 'logout') {
+        this.authEpoch += 1;
+        this.logoutComplete = null;
+        this.routeSnapshot = { stage: 'logout', entry: entry.entry + 1 };
+        this.routeListeners.forEach((listener) => listener());
+      }
     } catch (reason: unknown) {
       this.transactions.consumeReturnTo();
       throw reason;
     }
   };
 
-  completeLogout = (): Promise<string> => {
-    if (this.logoutComplete !== null) return this.logoutComplete;
-    this.logoutComplete = this.performLogout();
-    return this.logoutComplete;
+  completeLogout = (): Promise<LogoutResult> => {
+    const location = this.getCurrentLocation();
+    if (this.logoutComplete?.location === location) return this.logoutComplete.promise;
+    const promise = this.performLogout(location);
+    this.logoutComplete = { location, promise };
+    return promise;
   };
 
   subscribe = (listener: () => void): (() => void) => {
@@ -220,6 +243,8 @@ export class AuthClient<Profile = unknown> {
   getProfileSnapshot = (): Pick<AuthSnapshot<Profile>, 'profile' | 'profileStatus' | 'profileError'> => this.profileSnapshot;
 
   initialize = (): Promise<void> => {
+    // Logout captures its hint directly, including expired ID tokens. Restoration must not discard it.
+    if (this.readAuthRoute() === 'logout') return Promise.resolve();
     if (this.initializeRequest !== null) return this.initializeRequest;
     this.initializeRequest = this.performInitialize();
     return this.initializeRequest;
@@ -354,6 +379,7 @@ export class AuthClient<Profile = unknown> {
 
   private async performLoginStart(): Promise<void> {
     const operationEpoch = this.authEpoch;
+    this.logoutTransactions.clear();
     const verifier = randomString(64, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~');
     const state = randomString(32, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_');
     const nonce = this.oidcIdentity === null ? undefined : randomString(32, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_');
@@ -376,6 +402,7 @@ export class AuthClient<Profile = unknown> {
 
   private async enterLoginStageOnce(): Promise<void> {
     const operationEpoch = this.authEpoch;
+    this.logoutTransactions.clear();
     const accessToken = await this.getToken();
     if (operationEpoch !== this.authEpoch) throw new AuthFlowError('SESSION_CHANGED', 'Login was canceled before leaving for the provider.');
     if (accessToken !== null) {
@@ -450,6 +477,7 @@ export class AuthClient<Profile = unknown> {
           : { grantedScopes: splitScopes(token.scope) }),
       };
       if (operationEpoch !== this.authEpoch) throw new AuthFlowError('SESSION_CHANGED', 'Authentication changed while login was in progress.');
+      this.logoutTransactions.clear();
       this.storage.save(record);
       committedCallbackTokens = true;
       this.setSnapshot({
@@ -651,43 +679,146 @@ export class AuthClient<Profile = unknown> {
     this.listeners.forEach((listener) => listener());
   }
 
-  private async performLogout(): Promise<string> {
+  private async performLogout(location: string): Promise<LogoutResult> {
+    const callbackUri = this.config.postLogoutRedirectUri;
+    if (callbackUri !== undefined) {
+      const callbackEpoch = this.authEpoch;
+      // A return or terminal marker must never start local cleanup or another provider redirect.
+      try {
+        const current = new URL(location, window.location.origin);
+        const saved = this.logoutTransactions.get();
+        const states = current.searchParams.getAll('state');
+        if (states.length > 0 || current.searchParams.has('error')) {
+          if (current.origin + current.pathname !== callbackUri) {
+            throw new AuthFlowError('INVALID_LOGOUT_CALLBACK', 'The logout callback location did not match.');
+          }
+          if (saved?.status !== 'pending' || saved.callbackUri !== callbackUri) {
+            throw new AuthFlowError('MISSING_LOGOUT_TRANSACTION', 'The logout transaction is missing or already completed.');
+          }
+          if (states.length !== 1 || states[0] !== saved.state) {
+            throw new AuthFlowError('LOGOUT_STATE_MISMATCH', 'OAuth state did not match the logout request.');
+          }
+          const age = Date.now() - saved.createdAt;
+          if (age < 0 || age >= logoutTransactionLifetimeMs) {
+            throw new AuthFlowError('EXPIRED_LOGOUT_TRANSACTION', 'The logout transaction has expired.');
+          }
+          if (current.searchParams.has('error')) {
+            throw new AuthFlowError('PROVIDER_LOGOUT_FAILED', 'The provider reported a logout failure.');
+          }
+          // Parent router effects activate navigation after the child's initial effect.
+          await Promise.resolve();
+          this.assertLogoutEpoch(callbackEpoch);
+          this.logoutTransactions.save({ status: 'complete', callbackUri });
+          if (this.storage.getRecord() === null) this.setSnapshot({ status: 'anonymous', authError: null });
+          await this.commitNavigation(current.pathname, true);
+          return { status: 'complete', returnTo: null };
+        }
+        if (saved !== null) {
+          if (saved.callbackUri !== callbackUri) throw new AuthFlowError('INVALID_LOGOUT_CALLBACK', 'The logout callback configuration changed.');
+          if (saved.status === 'complete') {
+            if (this.storage.getRecord() === null) this.setSnapshot({ status: 'anonymous', authError: null });
+            return { status: 'complete', returnTo: null };
+          }
+          if (saved.status === 'error') throw new AuthFlowError(saved.error.code, saved.error.message);
+          throw new AuthFlowError('INCOMPLETE_PROVIDER_LOGOUT', 'The provider logout did not return a valid state. Start a new logout to retry.');
+        }
+        if (current.origin + current.pathname === callbackUri && callbackUri !== this.config.routeUrls.logout) {
+          throw new AuthFlowError('MISSING_LOGOUT_TRANSACTION', 'The logout transaction is missing.');
+        }
+      } catch (reason: unknown) {
+        this.assertLogoutEpoch(callbackEpoch);
+        const error = normalizeFlowError(reason, 'LOGOUT_CALLBACK_FAILED');
+        // Keep a terminal marker so a reload cannot turn a failed callback into a new logout.
+        this.saveLogoutFailure(callbackUri, error);
+        this.setSnapshot({ authError: error });
+        await this.reportLogoutError(error);
+        throw new AuthFlowError(error.code, error.message);
+      }
+    }
+
     this.authEpoch += 1;
     const operationEpoch = this.authEpoch;
-    const savedReturnTo = this.transactions.consumeReturnTo() ?? this.config.appBaseUrl;
+    let savedReturnTo = this.config.appBaseUrl;
+    let idTokenHint: string | undefined;
     let failure: AuthError | null = null;
+    try {
+      savedReturnTo = this.transactions.consumeReturnTo() ?? this.config.appBaseUrl;
+      idTokenHint = this.storage.getRecord()?.idToken;
+    } catch (reason: unknown) {
+      failure = normalizeFlowError(reason, 'LOGOUT_STORAGE_FAILED');
+    }
     try {
       await this.config.hooks?.onLogoutStart?.();
     } catch (reason: unknown) {
-      failure = normalizeFlowError(reason, 'LOGOUT_START_FAILED');
+      failure ??= normalizeFlowError(reason, 'LOGOUT_START_FAILED');
     }
 
-    if (operationEpoch !== this.authEpoch) throw new AuthFlowError('SESSION_CHANGED', 'Authentication changed while logout was in progress.');
-    this.storage.clear();
-    this.transactions.clear();
+    this.assertLogoutEpoch(operationEpoch);
+    // Clear the other local state even if one storage operation fails.
+    for (const clear of [() => this.storage.clear(), () => this.transactions.clear()]) {
+      try { clear(); } catch (reason: unknown) { failure ??= normalizeFlowError(reason, 'LOGOUT_STORAGE_FAILED'); }
+    }
     this.setSnapshot({
       status: 'anonymous', isRefreshing: false, grantedScopes: null,
-      authError: null, profile: null, profileStatus: 'idle', profileError: null, idTokenClaims: null,
+      authError: failure, profile: null, profileStatus: 'idle', profileError: null, idTokenClaims: null,
     });
     this.verifiedIdToken = null;
-    if (failure === null) {
+    if (failure === null || callbackUri !== undefined) {
       try {
         await this.config.hooks?.onLogout?.();
       } catch (reason: unknown) {
-        failure = normalizeFlowError(reason, 'LOGOUT_FAILED');
+        failure ??= normalizeFlowError(reason, 'LOGOUT_FAILED');
       }
     }
-    if (operationEpoch !== this.authEpoch) throw new AuthFlowError('SESSION_CHANGED', 'Authentication changed while logout was in progress.');
+    this.assertLogoutEpoch(operationEpoch);
     if (failure !== null) {
-      try {
-        await this.config.hooks?.onLogoutError?.({ ...failure, stage: 'logout' });
-      } catch {
-        // Local logout is complete even if an observer hook fails.
-      }
-      throw new AuthFlowError(failure.code, failure.message);
+      this.setSnapshot({ authError: failure });
+      await this.reportLogoutError(failure);
+      this.assertLogoutEpoch(operationEpoch);
+      if (callbackUri === undefined) throw new AuthFlowError(failure.code, failure.message);
     }
-    return isAllowedReturnTo(savedReturnTo, this.config);
+    if (callbackUri === undefined) {
+      return { status: 'complete', returnTo: isAllowedReturnTo(savedReturnTo, this.config) };
+    }
+
+    try {
+      const state = randomString(32, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_');
+      const url = new URL(this.config.endSessionEndpoint!);
+      url.searchParams.set('client_id', this.config.clientId);
+      url.searchParams.set('post_logout_redirect_uri', callbackUri);
+      url.searchParams.set('state', state);
+      url.searchParams.delete('id_token_hint');
+      if (idTokenHint) url.searchParams.set('id_token_hint', idTokenHint);
+      this.logoutTransactions.save({ status: 'pending', callbackUri, state, createdAt: Date.now() });
+      this.assertLogoutEpoch(operationEpoch);
+      window.location.replace(url.href);
+      return { status: 'redirecting' };
+    } catch (reason: unknown) {
+      this.assertLogoutEpoch(operationEpoch);
+      const error = normalizeFlowError(reason, 'PROVIDER_LOGOUT_REDIRECT_FAILED');
+      this.saveLogoutFailure(callbackUri, error);
+      this.setSnapshot({ authError: error });
+      await this.reportLogoutError(error);
+      throw new AuthFlowError(error.code, error.message);
+    }
   }
+
+  private assertLogoutEpoch(epoch: number): void {
+    if (epoch !== this.authEpoch) throw new AuthFlowError('SESSION_CHANGED', 'Authentication changed while logout was in progress.');
+  }
+
+  private saveLogoutFailure(callbackUri: string, error: AuthError): void {
+    try { this.logoutTransactions.save({ status: 'error', callbackUri, error }); } catch {
+      // A storage failure must not hide the original failure or restore local credentials.
+    }
+  }
+
+  private async reportLogoutError(error: AuthError): Promise<void> {
+    try { await this.config.hooks?.onLogoutError?.({ ...error, stage: 'logout' }); } catch {
+      // Observer failures cannot replace the flow error.
+    }
+  }
+
 }
 
 function sameScopes(left: readonly string[] | null, right: readonly string[] | null): boolean {
@@ -762,6 +893,8 @@ function getFingerprint<Profile>(config: NormalizedAuthConfig<Profile>): string 
   return JSON.stringify({
     authorizationEndpoint: config.authorizationEndpoint,
     tokenEndpoint: config.tokenEndpoint,
+    endSessionEndpoint: config.endSessionEndpoint,
+    postLogoutRedirectUri: config.postLogoutRedirectUri,
     scopes: config.scopes,
     appBaseUrl: config.appBaseUrl,
     redirectUri: config.redirectUri,

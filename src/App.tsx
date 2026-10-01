@@ -18,6 +18,7 @@ const authClient = createAuthClient<AppProfile>({
   clientId: 'local-consumer-demo',
   authorizationEndpoint: 'http://localhost:4000/authorize',
   tokenEndpoint: 'http://localhost:4000/token',
+  endSessionEndpoint: 'http://localhost:4000/end-session',
   scopes: ['projects.read', 'profile'],
   oidc: {
     issuer: 'http://localhost:4000/',

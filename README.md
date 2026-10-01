@@ -1,6 +1,6 @@
 # @huddle-ai/auth
 
-A client-side React library for the OAuth 2.0 authorization-code flow with PKCE. The library owns login callback validation, token exchange and renewal, scoped token storage, and the optional verification of OpenID Connect ID tokens. A consuming app supplies its provider endpoints and can replace the login, login-callback, and logout views.
+A client-side React library for the OAuth 2.0 authorization-code flow with PKCE. The library owns login callback validation, token exchange and renewal, optional provider session logout, scoped token storage, and the optional verification of OpenID Connect ID tokens. A consuming app supplies its provider endpoints and can replace the login, login-callback, and logout views.
 
 Install the public package after its first release:
 
@@ -21,7 +21,7 @@ npm run dev:mock
 npm start
 ```
 
-Open the Vite URL, then use **Log in**, load the protected project, renew the token, and **Log out**. The fixture uses fake credentials and a locally generated RSA signing key. It is development infrastructure and is not included in the package.
+Open the Vite URL, then use **Log in**, load the protected project, renew the token, and **Log out**. Logout round-trips through the fixture’s end-session endpoint and stays on the completion page; navigate home to log in again. The fixture uses fake credentials and a locally generated RSA signing key. It is development infrastructure and is not included in the package.
 
 ## Package and tests
 

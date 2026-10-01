@@ -22,6 +22,7 @@ export type {
   LoginCallbackViewProps,
   LoginViewProps,
   LogoutOptions,
+  LogoutResult,
   LogoutViewProps,
   OAuthProtocolError,
   OAuthTokenResponse,

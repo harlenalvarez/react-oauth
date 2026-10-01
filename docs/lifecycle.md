@@ -10,7 +10,7 @@ Configure hooks on the shared client so they remain available after the authoriz
 | `onLoginComplete` | Awaited after tokens are saved, before profile loading and return navigation. Rejection fails login and removes tokens saved by that callback. |
 | `onLoginError` | Receives the original failure and its stage. Observer rejection cannot replace the original error. |
 | `onTokenRenewed` | Awaited after refreshed tokens are saved. Rejection rejects renewal; the refreshed token remains stored. |
-| `onLogoutStart`, `onLogout` | Awaited before and after local credential clearing. Rejection reports logout failure; a current logout still clears credentials. |
+| `onLogoutStart`, `onLogout` | Awaited before and after local credential clearing. Rejection reports an error; a current logout still clears credentials and attempts configured provider logout. These hooks run once at initiation, not again on return. |
 | `onLogoutError` | Receives logout failure. Observer rejection cannot undo credential clearing. |
 
 For example, to require a permission setup request during login:
@@ -27,6 +27,6 @@ hooks: {
 }
 ```
 
-Use `loadProfile` for data that must load again after a page refresh. It reports failures separately, so optional profile data cannot cause a login loop. Logout clears local tokens even if a host logout hook fails; it does not end the identity provider's server session.
+Use `loadProfile` for data that must load again after a page refresh. It reports failures separately, so optional profile data cannot cause a login loop. Logout clears local tokens even if a host logout hook fails. `onLogout` observes local cleanup; it does not confirm provider session termination. When `endSessionEndpoint` is configured, the library owns the provider redirect and return validation. Hook failures are reported through `onLogoutError` and `authError` and do not block that provider attempt. Local-only logout still rejects on hook failure. No redirect logic belongs in these hooks.
 
 Location observation starts in provider layout setup and immediately reconciles the current URL. Async initialization and auth-stage work use passive effects. Strict Mode shares work within a stage entry; leaving and entering again creates a new entry. Abandoned continuations do not update screens, navigate, or clear a later session. Host hook side effects already underway cannot be cancelled by the library, so make host work idempotent and avoid navigating from a pending hook.

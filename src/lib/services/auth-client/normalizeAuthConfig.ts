@@ -10,6 +10,14 @@ export function normalizeAuthConfig<Profile>(options: AuthClientOptions<Profile>
   if (typeof options.clientId !== 'string' || options.clientId.trim().length === 0) throw new Error('clientId is required');
   const authorizationEndpoint = validateEndpoint(options.authorizationEndpoint, 'authorizationEndpoint');
   const tokenEndpoint = validateEndpoint(options.tokenEndpoint, 'tokenEndpoint');
+  const endSessionEndpoint = options.endSessionEndpoint === undefined
+    ? undefined : validateEndpoint(options.endSessionEndpoint, 'endSessionEndpoint');
+  if (endSessionEndpoint !== undefined && endSessionEndpoint.includes('#')) {
+    throw new Error('endSessionEndpoint must not contain a hash');
+  }
+  if (options.postLogoutRedirectUri !== undefined && endSessionEndpoint === undefined) {
+    throw new Error('postLogoutRedirectUri requires endSessionEndpoint');
+  }
   const oidc = options.oidc === undefined ? undefined : {
     issuer: validateIssuer(options.oidc.issuer),
     jwksUri: validateEndpoint(options.oidc.jwksUri, 'oidc.jwksUri'),
@@ -51,6 +59,18 @@ export function normalizeAuthConfig<Profile>(options: AuthClientOptions<Profile>
   if (redirectUrl.username || redirectUrl.password) throw new Error('redirectUri must not include URL credentials');
   if (redirectUrl.search || redirectUrl.hash) throw new Error('redirectUri must not contain a query or hash');
   const redirectUri = redirectUrl.href;
+  const logoutRedirect = endSessionEndpoint === undefined ? undefined
+    : new URL(options.postLogoutRedirectUri ?? routeUrls.logout, base);
+  if (logoutRedirect !== undefined) {
+    validateEndpoint(logoutRedirect.href, 'postLogoutRedirectUri');
+    if (logoutRedirect.href.includes('?') || logoutRedirect.href.includes('#')) throw new Error('postLogoutRedirectUri must not contain a query or hash');
+    if (logoutRedirect.origin !== base.origin || !logoutRedirect.pathname.startsWith(base.pathname)) {
+      throw new Error('postLogoutRedirectUri must stay inside appBaseUrl');
+    }
+    if ([routeUrls.login, routeUrls.loginCallback, redirectUri, base.href].includes(logoutRedirect.href)) {
+      throw new Error('postLogoutRedirectUri must not conflict with login paths or the app root');
+    }
+  }
   if (options.scopes?.some((scope) => typeof scope !== 'string')) throw new Error('scopes must contain strings');
   const scopes = options.scopes?.map((scope) => scope.trim());
   if (scopes?.some((scope) => scope.length === 0)) {
@@ -61,6 +81,8 @@ export function normalizeAuthConfig<Profile>(options: AuthClientOptions<Profile>
     ...options,
     authorizationEndpoint,
     tokenEndpoint,
+    endSessionEndpoint,
+    postLogoutRedirectUri: logoutRedirect?.href,
     scopes: scopes === undefined
       ? (oidc === undefined ? undefined : ['openid'])
       : [...new Set(oidc === undefined || scopes.includes('openid') ? scopes : ['openid', ...scopes])],
@@ -82,6 +104,7 @@ export function isAllowedReturnTo<Profile>(value: string | undefined, config: No
     if (target.origin !== base.origin || !target.pathname.startsWith(base.pathname)) return fallback;
     if (Object.values(config.routeUrls).some((route) => new URL(route).pathname === target.pathname)) return fallback;
     if (new URL(config.redirectUri).pathname === target.pathname) return fallback;
+    if (config.postLogoutRedirectUri !== undefined && new URL(config.postLogoutRedirectUri).pathname === target.pathname) return fallback;
     return `${target.pathname}${target.search}${target.hash}`;
   } catch {
     return fallback;

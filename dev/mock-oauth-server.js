@@ -1,4 +1,4 @@
-import { createHash, createSign, generateKeyPairSync, randomBytes } from 'node:crypto';
+import { createHash, createSign, createVerify, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 
 const host = '127.0.0.1';
@@ -29,6 +29,11 @@ const server = createServer(async (request, response) => {
   const requestUrl = new URL(request.url ?? '/', `http://${host}:${port}`);
   if (request.method === 'GET' && requestUrl.pathname === '/authorize') {
     authorize(requestUrl, response);
+    return;
+  }
+  if ((request.method === 'GET' || request.method === 'POST') && requestUrl.pathname === '/end-session') {
+    const parameters = request.method === 'POST' ? await readForm(request) : requestUrl.searchParams;
+    endSession(parameters, response);
     return;
   }
   if (request.method === 'GET' && requestUrl.pathname === '/jwks') {
@@ -191,4 +196,38 @@ function readForm(request) {
 function sendJson(response, status, payload) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   response.end(JSON.stringify(payload));
+}
+
+// Development-only RP-Initiated Logout fixture; not a production session provider.
+function endSession(parameters, response) {
+  const clientId = parameters.get('client_id');
+  const callbackUri = parameters.get('post_logout_redirect_uri');
+  const hint = parameters.get('id_token_hint');
+  for (const name of ['client_id', 'post_logout_redirect_uri', 'id_token_hint', 'state']) {
+    if (parameters.getAll(name).length > 1) {
+      sendJson(response, 400, { error: 'invalid_request' });
+      return;
+    }
+  }
+  if (clientId !== 'local-consumer-demo' || callbackUri !== `${allowedOrigin}/logout`) {
+    sendJson(response, 400, { error: 'invalid_logout_redirect' });
+    return;
+  }
+  if (hint) {
+    try {
+      const [header, payload, signature, extra] = hint.split('.');
+      const claims = JSON.parse(Buffer.from(payload, 'base64url').toString());
+      const signingHeader = JSON.parse(Buffer.from(header, 'base64url').toString());
+      const verifier = createVerify('RSA-SHA256').update(`${header}.${payload}`).end();
+      if (extra !== undefined || signingHeader.alg !== 'RS256' || claims.iss !== issuer || claims.aud !== clientId ||
+        !verifier.verify(signingPair.publicKey, Buffer.from(signature, 'base64url'))) throw new Error('Invalid hint');
+    } catch {
+      sendJson(response, 400, { error: 'invalid_id_token_hint' });
+      return;
+    }
+  }
+  const callback = new URL(callbackUri);
+  const state = parameters.get('state');
+  if (state !== null) callback.searchParams.set('state', state);
+  response.writeHead(302, { Location: callback.href, 'Cache-Control': 'no-store' }).end();
 }

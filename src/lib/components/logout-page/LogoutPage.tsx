@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ComponentType, ReactElement } from 'react';
 import type { AuthError, LogoutViewProps } from '@/types';
 import type { AuthClient } from '@/services/auth-client/AuthClient';
+import { AuthFlowError } from '@/services/auth-client/AuthClient';
 import { AuthScreen } from '../auth-screen/AuthScreen';
 
 type LogoutPageProps<Profile> = {
@@ -23,15 +24,16 @@ export function LogoutPage<Profile>({ client, View, message }: LogoutPageProps<P
   useEffect(() => {
     let active = true;
     const entry = client.getAuthRouteSnapshot();
-    void client.completeLogout().then(async (returnTo) => {
+    void client.completeLogout().then(async (result) => {
       if (!active || entry !== client.getAuthRouteSnapshot()) return;
+      if (result.status === 'redirecting') return;
       setStatus('complete');
-      await client.navigateInternal(returnTo, true);
+      if (result.returnTo !== null) await client.navigateInternal(result.returnTo, true);
     }).catch((reason: unknown) => {
       if (!active || entry !== client.getAuthRouteSnapshot()) return;
       setStatus('error');
       setError(reason instanceof Error
-        ? { code: 'LOGOUT_FAILED', message: reason.message }
+        ? { code: reason instanceof AuthFlowError ? reason.code : 'LOGOUT_FAILED', message: reason.message }
         : { code: 'LOGOUT_FAILED', message: 'Logout could not be completed.' });
     });
     return () => { active = false; };
