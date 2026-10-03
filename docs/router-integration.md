@@ -2,6 +2,8 @@
 
 The default navigator uses `history.pushState()` for login/logout entry and `history.replaceState()` when leaving an auth screen. It then dispatches `popstate`. Your own helper that calls `pushState()` and dispatches `popstate` can therefore enter an auth screen without reloading the document. Native Back/Forward events work too.
 
+Browser Back from the authorization server to `/login` shows a cancelled login view when the document is restored by history traversal or the back/forward cache and an unexpired PKCE transaction exists. The default view offers **Log in** to start a fresh attempt, preserving the original return path. Later SPA navigation to `/login` still starts login automatically; the document's Navigation Timing entry is only checked on initial login entry.
+
 React Router and TanStack Router also have their own location subscriptions. To recognize **their** Link and navigate calls reliably, pass a complete adapter to the provider. It supplies the current committed `pathname + search + hash`, announces changes, and navigates through the router. Keep its bridge mounted above the auth boundary, including on `/login`, `/login-callback`, and `/logout`. The server must serve the app at the callback URL so the authorization server can return there.
 
 ```ts

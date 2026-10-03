@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { waitFor } from '@testing-library/react';
 import type { OidcOptions } from '@/types';
 import { createAuthClient } from '@/services/auth-client/AuthClient';
 import { OidcIdentity } from './OidcIdentity';
@@ -86,6 +87,33 @@ describe('OIDC ID token validation', () => {
 
     expect(client.storage.getRecord()).toMatchObject({ accessToken: 'opaque-token', idToken: fixture.token });
     expect(client.getIdTokenClaims()).toMatchObject({ sub: 'verified-subject', email: 'verified@example.test', email_verified: true });
+  });
+  it('revalidates replacement identity claims when a protected document is restored', async () => {
+    const id = `oidc-restore-${crypto.randomUUID()}`;
+    const oldIdentity = await createFixture({ iss: issuer, aud: id, sub: 'old-account', exp: futureSeconds(300), iat: pastSeconds(5) });
+    const newIdentity = await createFixture({ iss: issuer, aud: id, sub: 'new-account', exp: futureSeconds(300), iat: pastSeconds(5) }, 'RS256', 'new-key');
+    const fetch = vi.fn()
+      .mockImplementationOnce(jwksResponse(oldIdentity.jwk))
+      .mockImplementationOnce(jwksResponse(newIdentity.jwk));
+    vi.stubGlobal('fetch', fetch);
+    window.history.replaceState(null, '', '/projects');
+    const client = createAuthClient({ clientId: id, authorizationEndpoint: `${issuer}/authorize`, tokenEndpoint: `${issuer}/token`, oidc: oidcOptions });
+    const stop = client.observeNavigation(undefined);
+    try {
+      client.storage.save({ accessToken: 'old', tokenType: 'Bearer', expiresAt: Date.now() + 600000, idToken: oldIdentity.token });
+      await client.initialize();
+      expect(client.getSnapshot().idTokenClaims?.sub).toBe('old-account');
+      client.storage.save({ accessToken: 'new', tokenType: 'Bearer', expiresAt: Date.now() + 600000, idToken: newIdentity.token });
+      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+      expect(client.getSnapshot().idTokenClaims).toBeNull();
+      expect(client.getSnapshot().status).toBe('initializing');
+      await waitFor(() => expect(client.getSnapshot().idTokenClaims?.sub).toBe('new-account'));
+      expect(client.getSnapshot().status).toBe('authenticated');
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      stop();
+      window.history.replaceState(null, '', '/');
+    }
   });
 });
 

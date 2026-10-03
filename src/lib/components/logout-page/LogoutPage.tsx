@@ -1,9 +1,8 @@
-import { useEffect, useState } from 'react';
 import type { ComponentType, ReactElement } from 'react';
-import type { AuthError, LogoutViewProps } from '@/types';
+import type { LogoutViewProps } from '@/types';
 import type { AuthClient } from '@/services/auth-client/AuthClient';
-import { AuthFlowError } from '@/services/auth-client/AuthClient';
 import { AuthScreen } from '../auth-screen/AuthScreen';
+import { useAuthStageRecovery } from '../auth-stage/useAuthStageRecovery';
 
 type LogoutPageProps<Profile> = {
   readonly client: AuthClient<Profile>;
@@ -11,35 +10,21 @@ type LogoutPageProps<Profile> = {
   readonly message?: string;
 };
 
-function DefaultLogoutView({ status, error, message }: LogoutViewProps & { readonly message?: string }): ReactElement {
-  return <AuthScreen><p role={error === null ? 'status' : 'alert'}>
-    {error?.message ?? (status === 'complete' ? 'Logged out.' : message ?? 'Logging out…')}
-  </p></AuthScreen>;
+function DefaultLogoutView({ status, error, navigationError, onRetry, onContinue, message }: LogoutViewProps & { readonly message?: string }): ReactElement {
+  return <AuthScreen>
+    <p role={error === null ? 'status' : 'alert'}>
+      {error?.message ?? (status === 'cancelled' ? 'Provider logout was not confirmed. You can try again.' : status === 'complete' ? 'Logged out.' : message ?? 'Logging out…')}
+    </p>
+    {navigationError !== null && <p role="alert">{navigationError.message}</p>}
+    {navigationError !== null && <button type="button" className="react-oauth-screen-action" onClick={onContinue}>Continue</button>}
+    {(status === 'cancelled' || status === 'error') && <button type="button" className="react-oauth-screen-action" onClick={onRetry}>Log out</button>}
+  </AuthScreen>;
 }
 
 export function LogoutPage<Profile>({ client, View, message }: LogoutPageProps<Profile>): ReactElement {
-  const [status, setStatus] = useState<LogoutViewProps['status']>('loggingOut');
-  const [error, setError] = useState<AuthError | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    const entry = client.getAuthRouteSnapshot();
-    void client.completeLogout().then(async (result) => {
-      if (!active || entry !== client.getAuthRouteSnapshot()) return;
-      if (result.status === 'redirecting') return;
-      setStatus('complete');
-      if (result.returnTo !== null) await client.navigateInternal(result.returnTo, true);
-    }).catch((reason: unknown) => {
-      if (!active || entry !== client.getAuthRouteSnapshot()) return;
-      setStatus('error');
-      setError(reason instanceof Error
-        ? { code: reason instanceof AuthFlowError ? reason.code : 'LOGOUT_FAILED', message: reason.message }
-        : { code: 'LOGOUT_FAILED', message: 'Logout could not be completed.' });
-    });
-    return () => { active = false; };
-  }, [client]);
+  const props = useAuthStageRecovery(client, 'logout');
 
   return View === undefined
-    ? <DefaultLogoutView status={status} error={error} message={message} />
-    : <View status={status} error={error} />;
+    ? <DefaultLogoutView {...props} message={message} />
+    : <View {...props} />;
 }

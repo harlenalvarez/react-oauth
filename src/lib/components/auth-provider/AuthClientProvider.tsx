@@ -22,5 +22,5 @@ export function AuthClientProvider<Profile>({
     void client.initialize();
   }, [client]);
 
-  return <AuthContext.Provider value={client}>{children}</AuthContext.Provider>;
+  return <AuthContext value={client}>{children}</AuthContext>;
 }

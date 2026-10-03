@@ -104,6 +104,7 @@ describe('provider logout', () => {
     pending(client);
     setLocation('/logout?state=expected');
     await expect(client.completeLogout()).resolves.toEqual({ status: 'complete', returnTo: null });
+    await client.continueAuthStage(null);
     expect(realWindow.location.search).toBe('');
     const reloaded = new AuthClient(client.config);
     await expect(reloaded.completeLogout()).resolves.toEqual({ status: 'complete', returnTo: null });
@@ -116,7 +117,6 @@ describe('provider logout', () => {
   it.each([
     ['mismatched', '/logout?state=wrong', {}, 'LOGOUT_STATE_MISMATCH'],
     ['duplicate', '/logout?state=expected&state=expected', {}, 'LOGOUT_STATE_MISMATCH'],
-    ['missing', '/logout', {}, 'INCOMPLETE_PROVIDER_LOGOUT'],
     ['expired', '/logout?state=expected', { createdAt: Date.now() - 600_001 }, 'EXPIRED_LOGOUT_TRANSACTION'],
     ['wrong location', '/elsewhere?state=expected', {}, 'INVALID_LOGOUT_CALLBACK'],
     ['provider failure', '/logout?state=expected&error=denied', {}, 'PROVIDER_LOGOUT_FAILED'],

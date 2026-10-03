@@ -27,11 +27,11 @@ try {
   const entry = manifest.exports['.'];
   assert.equal(manifest.type, 'module');
   assert.equal(entry.require, undefined, 'The package must ship ESM only.');
-  for (const path of [entry.default, entry.types, manifest.main, manifest.types, 'README.md', 'package.json', 'docs/getting-started.md']) {
+  for (const path of [entry.default, entry.types, manifest.main, manifest.types, 'README.md', 'CHANGELOG.md', 'package.json', 'docs/getting-started.md']) {
     assert.ok(files.has(path.replace(/^\.\//, '')), `Missing packaged file: ${path}`);
   }
   for (const path of files) {
-    assert.ok(/^(dist\/|docs\/|package\.json$|README\.md$|LICEN[CS]E(?:\..*)?$)/i.test(path), `Unexpected packaged file: ${path}`);
+    assert.ok(/^(dist\/|docs\/|package\.json$|README\.md$|CHANGELOG\.md$|LICEN[CS]E(?:\..*)?$)/i.test(path), `Unexpected packaged file: ${path}`);
     assert.ok(!/\.(test|spec)\.[^/]+$|(^|\/)(__tests__|node_modules)(\/|$)/.test(path), `Development file in package: ${path}`);
     assert.ok(!/\.(cjs|mjs)$|\.umd\./.test(path), `Unexpected compatibility bundle: ${path}`);
   }

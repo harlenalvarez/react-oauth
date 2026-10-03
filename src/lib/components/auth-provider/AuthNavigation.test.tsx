@@ -144,12 +144,14 @@ describe('SPA auth navigation', () => {
       .mockImplementationOnce(() => pending.promise);
     const client = makeClient({ hooks: { onLoginCallbackStart } });
     window.history.replaceState(null, '', '/login-callback?code=first&state=first');
+    client.transactions.save({ clientId: client.config.clientId, state: 'first', verifier: 'first-verifier', createdAt: Date.now() });
     render(<ReactAuthProvider client={client}><span>App</span></ReactAuthProvider>);
     expect(onLoginCallbackStart).toHaveBeenCalledTimes(1);
     act(() => {
       window.history.pushState(null, '', '/projects');
       window.dispatchEvent(new PopStateEvent('popstate'));
       window.history.pushState(null, '', '/login-callback?code=second&state=second');
+      client.transactions.save({ clientId: client.config.clientId, state: 'second', verifier: 'second-verifier', createdAt: Date.now() });
       window.dispatchEvent(new PopStateEvent('popstate'));
     });
     expect(onLoginCallbackStart).toHaveBeenCalledTimes(2);

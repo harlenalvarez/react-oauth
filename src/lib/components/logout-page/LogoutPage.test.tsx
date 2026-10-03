@@ -9,6 +9,7 @@ describe('LogoutPage', () => {
   afterEach(() => window.history.replaceState(null, '', '/'));
 
   it('clears tokens and uses the custom view before replacing to the app root', async () => {
+    window.history.replaceState(null, '', '/logout');
     const client = createAuthClient({
       clientId: `logout-page-${crypto.randomUUID()}`,
       authorizationEndpoint: 'https://identity.example.com/authorize',

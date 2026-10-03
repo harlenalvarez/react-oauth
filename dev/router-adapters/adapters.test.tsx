@@ -143,12 +143,12 @@ describe.each(['React Router', 'TanStack Router'] as const)('%s complete integra
     if (kind === 'TanStack Router') navigate = tanStackAdapter.navigate;
 
     fireEvent.click(await screen.findByText('Host login'));
-    expect(await screen.findByRole('status')).toHaveTextContent('Taking you to log in…');
+    expect(await screen.findByRole('status')).toHaveTextContent('Logging in…');
     await waitFor(() => expect(onLoginStart).toHaveBeenCalledTimes(1));
     await act(async () => { await navigate({ to: `${basePath}/projects?tab=activity#notes`, replace: false }); });
     expect(await screen.findByText('Host login')).toBeInTheDocument();
     window.history.back();
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Taking you to log in…'));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Logging in…'));
     window.history.forward();
     await waitFor(() => expect(screen.getByText('Host login')).toBeInTheDocument());
 

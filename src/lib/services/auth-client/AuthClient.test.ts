@@ -102,7 +102,7 @@ describe('AuthClient login start', () => {
 
     const returnTo = await client.completeLogin();
 
-    expect(returnTo).toBe('/projects/42?tab=activity');
+    expect(returnTo).toEqual({ status: 'complete', returnTo: '/projects/42?tab=activity' });
     expect(onLoginCallbackStart).toHaveBeenCalledOnce();
     expect(afterTokenExchange).toHaveBeenCalledWith({ accessToken: 'opaque-access-token' });
     expect(onLoginComplete).toHaveBeenCalledWith({ accessToken: 'opaque-access-token' });
@@ -133,7 +133,7 @@ describe('AuthClient login start', () => {
     await expect(client.completeLogin()).rejects.toMatchObject({ code: 'STATE_MISMATCH' });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(client.storage.getRecord()).toBeNull();
-    expect(client.transactions.consume()).toBeNull();
+    expect(client.transactions.read()?.state).toBe('expected');
   });
 
   it('treats a replayed callback as complete when an existing valid session is present', async () => {
@@ -147,7 +147,7 @@ describe('AuthClient login start', () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(client.completeLogin()).resolves.toBe('/');
+    await expect(client.completeLogin()).resolves.toEqual({ status: 'complete', returnTo: '/' });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(client.storage.getRecord()?.accessToken).toBe('existing-session');
     expect(client.getSnapshot().status).toBe('authenticated');

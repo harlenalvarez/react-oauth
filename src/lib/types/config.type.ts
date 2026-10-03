@@ -71,18 +71,25 @@ export type NormalizedAuthConfig<Profile = unknown> = AuthClientOptions<Profile>
 };
 
 export type LoginViewProps = {
-  readonly status: 'redirecting' | 'error';
+  readonly status: 'redirecting' | 'cancelled' | 'error';
   readonly error: AuthError | null;
+  readonly onRetry: () => void;
 };
 
 export type LoginCallbackViewProps = {
-  readonly status: 'processing' | 'complete' | 'error';
+  readonly status: 'processing' | 'complete' | 'cancelled' | 'error';
   readonly error: AuthError | null;
+  readonly onRetry: () => void;
+  readonly navigationError: AuthError | null;
+  readonly onContinue: () => void;
 };
 
 export type LogoutViewProps = {
-  readonly status: 'loggingOut' | 'complete' | 'error';
+  readonly status: 'loggingOut' | 'complete' | 'cancelled' | 'error';
   readonly error: AuthError | null;
+  readonly onRetry: () => void;
+  readonly navigationError: AuthError | null;
+  readonly onContinue: () => void;
 };
 
 export type AuthViews = {
@@ -116,7 +123,12 @@ export type LogoutOptions = {
 
 export type LogoutResult =
   | { readonly status: 'redirecting' }
+  | { readonly status: 'cancelled' }
   | { readonly status: 'complete'; readonly returnTo: string | null };
+
+export type LoginResult =
+  | { readonly status: 'complete'; readonly returnTo: string }
+  | { readonly status: 'cancelled' };
 
 export type AuthTransaction = {
   readonly clientId: string;

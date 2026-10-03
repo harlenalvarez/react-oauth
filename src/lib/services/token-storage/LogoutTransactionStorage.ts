@@ -2,7 +2,8 @@ import type { AuthError } from '@/types';
 
 export type LogoutTransaction =
   | { readonly status: 'pending'; readonly callbackUri: string; readonly state: string; readonly createdAt: number }
-  | { readonly status: 'complete'; readonly callbackUri: string }
+  | { readonly status: 'complete'; readonly callbackUri: string; readonly returnTo?: string }
+  | { readonly status: 'cancelled'; readonly callbackUri: string }
   | { readonly status: 'error'; readonly callbackUri: string; readonly error: AuthError };
 
 export const logoutTransactionLifetimeMs = 10 * 60 * 1000;
@@ -36,7 +37,8 @@ function isLogoutTransaction(value: unknown): value is LogoutTransaction {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   if (typeof record.callbackUri !== 'string') return false;
-  if (record.status === 'complete') return true;
+  if (record.status === 'cancelled') return true;
+  if (record.status === 'complete') return record.returnTo === undefined || typeof record.returnTo === 'string';
   if (record.status === 'pending') {
     return typeof record.state === 'string' && record.state.length > 0 &&
       typeof record.createdAt === 'number' && Number.isFinite(record.createdAt);

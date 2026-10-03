@@ -12,7 +12,8 @@
   "types": "dist/index.d.ts",
   "files": [
     "dist",
-    "docs"
+    "docs",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "start": "vite",

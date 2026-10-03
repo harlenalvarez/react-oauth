@@ -20,6 +20,7 @@ export type {
   AuthMessages,
   AuthViews,
   LoginCallbackViewProps,
+  LoginResult,
   LoginViewProps,
   LogoutOptions,
   LogoutResult,

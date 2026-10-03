@@ -10,6 +10,7 @@ import type {
   OAuthTokenResponse,
   LogoutOptions,
   LogoutResult,
+  LoginResult,
   AuthTransaction,
   AuthLifecycleHooks,
   AuthStage,
@@ -23,7 +24,7 @@ import { getTokenStorage, type TokenStorage } from '../token-storage/TokenStorag
 import { OidcIdentity, OidcKeySetError, OidcValidationError } from '../oidc-identity/OidcIdentity';
 import { isAllowedReturnTo, normalizeAuthConfig } from './normalizeAuthConfig';
 
-type AuthRouteSnapshot = { readonly stage: AuthStage | null; readonly entry: number };
+type AuthRouteSnapshot = { readonly stage: AuthStage | null; readonly entry: number; readonly loginCancelled: boolean };
 
 export class AuthClient<Profile = unknown> {
   readonly config: NormalizedAuthConfig<Profile>;
@@ -50,16 +51,23 @@ export class AuthClient<Profile = unknown> {
   private refreshRequest: Promise<string | null> | null = null;
   private initializeRequest: Promise<void> | null = null;
   private loginStart: Promise<void> | null = null;
-  private loginCallback: { readonly location: string; readonly promise: Promise<string> } | null = null;
+  private loginCallback: { readonly location: string; readonly promise: Promise<LoginResult> } | null = null;
   private loginStage: Promise<void> | null = null;
+  private loginRetry: Promise<void> | null = null;
+  private loginCancelled = false;
   private logoutComplete: { readonly location: string; readonly promise: Promise<LogoutResult> } | null = null;
+  private logoutRetry: Promise<void> | null = null;
+  private continuation: Promise<void> | null = null;
+  private restoreRequest: Promise<void> | null = null;
+  private initialRestoreChecked = false;
+  private loginRestoreError: unknown = null;
   private readonly logoutTransactions: LogoutTransactionStorage;
   private observedLocation: string;
   private navigationAdapter: AuthNavigationAdapter | undefined;
   private navigationObservers = 0;
   private readonly routeListeners = new Set<() => void>();
   private stopLocationSubscription: (() => void) | null = null;
-  private routeSnapshot: AuthRouteSnapshot = { stage: null, entry: 0 };
+  private routeSnapshot: AuthRouteSnapshot = { stage: null, entry: 0, loginCancelled: false };
   private authEpoch = 0;
 
   constructor(config: NormalizedAuthConfig<Profile>) {
@@ -68,7 +76,7 @@ export class AuthClient<Profile = unknown> {
     this.logoutTransactions = new LogoutTransactionStorage(config.clientId);
     this.storage = getTokenStorage(config.clientId);
     this.oidcIdentity = config.oidc === undefined ? null : new OidcIdentity(config.oidc, config.clientId);
-    this.routeSnapshot = { stage: this.readAuthRoute(), entry: 0 };
+    this.routeSnapshot = { stage: this.readAuthRoute(), entry: 0, loginCancelled: false };
     this.observedLocation = this.getCurrentLocation();
   }
 
@@ -76,6 +84,7 @@ export class AuthClient<Profile = unknown> {
     const current = this.getCurrentLocation();
     const returnTo = isAllowedReturnTo(options.returnTo ?? current, this.config);
     this.logoutTransactions.clear();
+    this.transactions.clearOutcome();
     this.transactions.saveReturnTo(returnTo);
     try {
       await this.navigateTo(this.config.routeUrls.login);
@@ -155,13 +164,59 @@ export class AuthClient<Profile = unknown> {
   };
 
   private startLocationSubscription(): void {
+    if (!this.initialRestoreChecked) {
+      this.initialRestoreChecked = true;
+      if (this.routeSnapshot.entry === 0 && this.routeSnapshot.stage === 'login' && isHistoryRestore()) {
+        try { this.cancelRestoredLogin(); } catch (reason: unknown) { this.loginRestoreError = reason; }
+      }
+    }
+    window.addEventListener('pageshow', this.restorePage);
+    let stopLocation: () => void;
     if (this.navigationAdapter !== undefined) {
-      this.stopLocationSubscription = this.navigationAdapter.subscribe(this.notifyRouteChange);
+      stopLocation = this.navigationAdapter.subscribe(this.notifyRouteChange);
     } else {
       window.addEventListener('popstate', this.notifyRouteChange);
-      this.stopLocationSubscription = () => window.removeEventListener('popstate', this.notifyRouteChange);
+      stopLocation = () => window.removeEventListener('popstate', this.notifyRouteChange);
     }
+    this.stopLocationSubscription = () => {
+      stopLocation();
+      window.removeEventListener('pageshow', this.restorePage);
+    };
   }
+
+  private restorePage = (event: PageTransitionEvent): void => {
+    if (!event.persisted) return;
+    this.authEpoch += 1;
+    this.loginStart = null;
+    this.loginStage = null;
+    this.loginCallback = null;
+    this.loginRetry = null;
+    this.logoutComplete = null;
+    this.logoutRetry = null;
+    this.continuation = null;
+    this.refreshRequest = null;
+    this.initializeRequest = null;
+    this.verifiedIdToken = null;
+    this.loginRestoreError = null;
+    const stage = this.readAuthRoute();
+    if (stage === 'login') {
+      try { this.cancelRestoredLogin(); } catch (reason: unknown) { this.loginRestoreError = reason; }
+    } else {
+      this.loginCancelled = false;
+    }
+    this.setSnapshot({
+      status: 'initializing', isRefreshing: false, authError: null, grantedScopes: null,
+      profile: null, profileStatus: 'idle', profileError: null, idTokenClaims: null,
+    });
+    const request = this.performInitialize(false).finally(() => {
+      if (this.restoreRequest === request) this.restoreRequest = null;
+    });
+    this.restoreRequest = request;
+    this.initializeRequest = request;
+    this.observedLocation = this.getCurrentLocation();
+    this.routeSnapshot = { stage, entry: this.routeSnapshot.entry + 1, loginCancelled: this.loginCancelled };
+    this.routeListeners.forEach((listener) => listener());
+  };
 
   private readAuthRoute(): AuthStage | null {
     const current = new URL(this.getCurrentLocation(), window.location.origin);
@@ -179,17 +234,22 @@ export class AuthClient<Profile = unknown> {
   private notifyRouteChange = (): void => {
     const next = this.readAuthRoute();
     const location = this.getCurrentLocation();
-    const logoutLocationChanged = next === 'logout' && location !== this.observedLocation;
+    const parameters = new URL(location, window.location.origin).searchParams;
+    const callbackLocationChanged = (next === 'logout' || next === 'loginCallback') &&
+      location !== this.observedLocation && (parameters.has('state') || parameters.has('code') || parameters.has('error'));
     this.observedLocation = location;
-    if (next === this.routeSnapshot.stage && !logoutLocationChanged) return;
+    if (next === this.routeSnapshot.stage && !callbackLocationChanged) return;
     if (this.routeSnapshot.stage !== null) {
       this.authEpoch += 1;
       this.loginStart = null;
       this.loginStage = null;
+      this.loginRetry = null;
+      this.loginCancelled = false;
       this.loginCallback = null;
       this.logoutComplete = null;
+      this.continuation = null;
     }
-    this.routeSnapshot = { stage: next, entry: this.routeSnapshot.entry + 1 };
+    this.routeSnapshot = { stage: next, entry: this.routeSnapshot.entry + 1, loginCancelled: false };
     this.routeListeners.forEach((listener) => listener());
     if (next === null && this.initializeRequest === null) void this.initialize();
   };
@@ -208,21 +268,65 @@ export class AuthClient<Profile = unknown> {
   logout = async (options: LogoutOptions = {}): Promise<void> => {
     const returnTo = isAllowedReturnTo(options.returnTo ?? new URL(this.config.appBaseUrl).pathname, this.config);
     const entry = this.routeSnapshot;
-    this.logoutTransactions.clear();
-    this.transactions.saveReturnTo(returnTo);
+    const previousMarker = this.logoutTransactions.get();
+    const previousReturnTo = this.transactions.readReturnTo();
     try {
+      this.logoutTransactions.clear();
+      this.transactions.saveReturnTo(returnTo);
       await this.navigateTo(this.config.routeUrls.logout);
       // A new explicit action on the completion page is a new stage, even at the same URL.
       if (entry === this.routeSnapshot && this.readAuthRoute() === 'logout') {
         this.authEpoch += 1;
         this.logoutComplete = null;
-        this.routeSnapshot = { stage: 'logout', entry: entry.entry + 1 };
+        this.routeSnapshot = { stage: 'logout', entry: entry.entry + 1, loginCancelled: false };
         this.routeListeners.forEach((listener) => listener());
       }
     } catch (reason: unknown) {
-      this.transactions.consumeReturnTo();
+      if (entry === this.routeSnapshot && previousMarker !== null) this.logoutTransactions.save(previousMarker);
+      if (previousReturnTo === null) this.transactions.consumeReturnTo();
+      else this.transactions.saveReturnTo(previousReturnTo);
       throw reason;
     }
+  };
+
+  retryLogout = (): Promise<void> => {
+    if (this.readAuthRoute() !== 'logout') return Promise.reject(new AuthFlowError('INVALID_LOGOUT_STAGE', 'Logout can only be retried on the logout route.'));
+    if (this.logoutRetry !== null) return this.logoutRetry;
+    const entry = this.routeSnapshot;
+    const request = Promise.resolve().then(() => {
+      if (entry !== this.routeSnapshot) throw new AuthFlowError('SESSION_CHANGED', 'Authentication changed before logout could be retried.');
+      return this.logout({ returnTo: this.transactions.readReturnTo() ?? new URL(this.config.appBaseUrl).pathname });
+    }).finally(() => {
+      if (this.logoutRetry === request) this.logoutRetry = null;
+    });
+    this.logoutRetry = request;
+    return request;
+  };
+
+  // Recovery performs URL cleanup and return navigation only, never protocol work.
+  continueAuthStage = (returnTo: string | null): Promise<void> => {
+    if (this.continuation !== null) return this.continuation;
+    const entry = this.routeSnapshot;
+    const operationEpoch = this.authEpoch;
+    const request = (async () => {
+      const stage = this.readAuthRoute();
+      if (stage !== 'loginCallback' && stage !== 'logout') return;
+      const current = new URL(this.getCurrentLocation(), window.location.origin);
+      const savedReturnTo = this.transactions.readReturnTo();
+      if (current.search || current.hash) await this.commitNavigation(current.pathname, true);
+      if (entry !== this.routeSnapshot || operationEpoch !== this.authEpoch) return;
+      if (returnTo !== null) {
+        const destination = isAllowedReturnTo(returnTo, this.config);
+        await this.navigateInternal(destination, true);
+        const committed = new URL(this.getCurrentLocation(), window.location.origin);
+        if (`${committed.pathname}${committed.search}${committed.hash}` === destination &&
+          this.transactions.readReturnTo() === savedReturnTo) this.transactions.consumeReturnTo();
+      }
+    })().finally(() => {
+      if (this.continuation === request) this.continuation = null;
+    });
+    this.continuation = request;
+    return request;
   };
 
   completeLogout = (): Promise<LogoutResult> => {
@@ -250,13 +354,19 @@ export class AuthClient<Profile = unknown> {
     return this.initializeRequest;
   };
 
-  private async performInitialize(): Promise<void> {
+  private async performInitialize(waitForProfile = true): Promise<void> {
     const operationEpoch = this.authEpoch;
     try {
       const token = await this.getToken();
       if (operationEpoch !== this.authEpoch) return;
       this.setSnapshot({ status: token === null ? 'anonymous' : 'authenticated', isRefreshing: false, authError: null });
-      if (token !== null) await this.loadProfile(token, operationEpoch);
+      if (token !== null) {
+        const profileRequest = this.loadProfile(token, operationEpoch);
+        if (waitForProfile) await profileRequest;
+        else void profileRequest.catch((reason: unknown) => {
+          if (operationEpoch === this.authEpoch) this.setSnapshot({ profileStatus: 'error', profileError: normalizeFlowError(reason, 'PROFILE_LOAD_FAILED') });
+        });
+      }
     } catch (reason: unknown) {
       if (operationEpoch !== this.authEpoch) return;
       this.setSnapshot({
@@ -357,7 +467,7 @@ export class AuthClient<Profile = unknown> {
     if (this.loginStart !== null) return this.loginStart;
     const operationEpoch = this.authEpoch;
     this.loginStart = this.performLoginStart().catch((reason: unknown) => {
-      if (operationEpoch === this.authEpoch) this.transactions.clear();
+      if (operationEpoch === this.authEpoch) this.transactions.clearTransaction();
       throw reason;
     });
     return this.loginStart;
@@ -369,7 +479,58 @@ export class AuthClient<Profile = unknown> {
     return this.loginStage;
   }
 
-  completeLogin(): Promise<string> {
+  private cancelRestoredLogin(): boolean {
+    if (this.readAuthRoute() !== 'login') return false;
+    if (this.loginCancelled) return true;
+    const transaction = this.transactions.read();
+    if (transaction === null || transaction.clientId !== this.config.clientId) return false;
+    this.transactions.clearTransaction();
+    this.authEpoch += 1;
+    this.loginStart = null;
+    this.loginStage = null;
+    this.loginRetry = null;
+    this.loginCancelled = true;
+    this.routeSnapshot = { ...this.routeSnapshot, loginCancelled: true };
+    return true;
+  }
+
+  retryLogin = (): Promise<void> => {
+    const stage = this.readAuthRoute();
+    if (stage !== 'login' && stage !== 'loginCallback') {
+      return Promise.reject(new AuthFlowError('INVALID_LOGIN_STAGE', 'Login can only be retried on a login route.'));
+    }
+    if (this.loginRetry !== null) return this.loginRetry;
+    if (stage === 'loginCallback') {
+      const entry = this.routeSnapshot;
+      const request = Promise.resolve().then(() => {
+        if (entry !== this.routeSnapshot) throw new AuthFlowError('SESSION_CHANGED', 'Authentication changed before login could be retried.');
+        return this.commitNavigation(new URL(this.config.routeUrls.login).pathname, true);
+      })
+        .finally(() => { if (this.loginRetry === request) this.loginRetry = null; });
+      this.loginRetry = request;
+      return request;
+    }
+    try {
+      this.transactions.clearTransaction();
+      this.transactions.clearOutcome();
+    } catch (reason: unknown) {
+      return Promise.reject(reason);
+    }
+    this.authEpoch += 1;
+    this.loginStart = null;
+    this.loginStage = null;
+    this.loginCancelled = false;
+    this.loginRestoreError = null;
+    this.routeSnapshot = { ...this.routeSnapshot, loginCancelled: false };
+    const operationEpoch = this.authEpoch;
+    this.loginRetry = this.enterLoginStage().finally(() => {
+      if (operationEpoch === this.authEpoch) this.loginRetry = null;
+    });
+    this.routeListeners.forEach((listener) => listener());
+    return this.loginRetry;
+  };
+
+  completeLogin(): Promise<LoginResult> {
     const location = this.getCurrentLocation();
     if (this.loginCallback?.location === location) return this.loginCallback.promise;
     const promise = this.performLoginCallback(location);
@@ -380,6 +541,7 @@ export class AuthClient<Profile = unknown> {
   private async performLoginStart(): Promise<void> {
     const operationEpoch = this.authEpoch;
     this.logoutTransactions.clear();
+    this.transactions.clearOutcome();
     const verifier = randomString(64, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~');
     const state = randomString(32, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_');
     const nonce = this.oidcIdentity === null ? undefined : randomString(32, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_');
@@ -402,43 +564,82 @@ export class AuthClient<Profile = unknown> {
 
   private async enterLoginStageOnce(): Promise<void> {
     const operationEpoch = this.authEpoch;
+    if (this.restoreRequest !== null) await this.restoreRequest;
+    if (operationEpoch !== this.authEpoch) throw new AuthFlowError('SESSION_CHANGED', 'Authentication changed while login was in progress.');
+    if (this.loginRestoreError !== null) throw this.loginRestoreError;
+    if (this.loginCancelled) return;
     this.logoutTransactions.clear();
+    this.transactions.clearOutcome();
     const accessToken = await this.getToken();
     if (operationEpoch !== this.authEpoch) throw new AuthFlowError('SESSION_CHANGED', 'Login was canceled before leaving for the provider.');
     if (accessToken !== null) {
-      const returnTo = this.transactions.consumeReturnTo() ?? new URL(this.config.appBaseUrl).pathname;
+      const returnTo = this.transactions.readReturnTo() ?? new URL(this.config.appBaseUrl).pathname;
       await this.navigateInternal(returnTo, true);
+      if (this.transactions.readReturnTo() === returnTo) this.transactions.consumeReturnTo();
       return;
     }
     await this.startLogin();
   }
 
-  private async performLoginCallback(location: string): Promise<string> {
+  private async performLoginCallback(location: string): Promise<LoginResult> {
     const operationEpoch = this.authEpoch;
-    let committedCallbackTokens = false;
+    if (this.restoreRequest !== null) await this.restoreRequest;
+    if (operationEpoch !== this.authEpoch) throw new AuthFlowError('SESSION_CHANGED', 'Authentication changed while login was in progress.');
+    let committedCallbackRecord: StoredTokenRecord | null = null;
+    let acceptedTransaction = false;
+    let replayedOutcome = false;
+    const callbackUrl = new URL(location, window.location.origin);
     try {
-      await this.config.hooks?.onLoginCallbackStart?.();
+      const parameters = callbackUrl.searchParams;
+      if (!parameters.has('code') && !parameters.has('state') && !parameters.has('error')) {
+        const outcome = this.transactions.readOutcome(callbackUrl.pathname);
+        if (outcome !== null) {
+          replayedOutcome = true;
+          if (outcome.status === 'error') throw new AuthFlowError(outcome.error.code, outcome.error.message);
+          if (outcome.status === 'cancelled') return { status: 'cancelled' };
+          if (await this.getToken() !== null) return { status: 'complete', returnTo: isAllowedReturnTo(outcome.returnTo, this.config) };
+          throw new AuthFlowError('MISSING_TRANSACTION', 'The login transaction is missing or expired.');
+        }
+      }
       if (operationEpoch !== this.authEpoch) throw new AuthFlowError('SESSION_CHANGED', 'Authentication changed while login was in progress.');
-      const parameters = new URL(location, window.location.origin).searchParams;
-      if (parameters.has('error')) {
-        const error = parameters.get('error') ?? 'authorization_error';
-        const description = parameters.get('error_description') ?? 'The authorization server returned an error.';
-        throw new AuthFlowError(error, description);
+      if (['code', 'state', 'error', 'error_description', 'error_uri'].some((key) => parameters.getAll(key).length > 1) ||
+        (parameters.has('code') && parameters.has('error'))) {
+        throw new AuthFlowError('INVALID_CALLBACK_RESPONSE', 'The authorization response is malformed.');
       }
       const code = parameters.get('code');
       const returnedState = parameters.get('state');
-      if (code === null || code.length === 0) throw new AuthFlowError('MISSING_CODE', 'Authorization code is missing.');
+      const providerError = parameters.get('error');
+      if (providerError === null && (code === null || code.length === 0)) throw new AuthFlowError('MISSING_CODE', 'Authorization code is missing.');
+      if (providerError !== null && !/^[\x20-\x21\x23-\x5B\x5D-\x7E]+$/.test(providerError)) {
+        throw new AuthFlowError('INVALID_CALLBACK_RESPONSE', 'The authorization response is malformed.');
+      }
       if (returnedState === null || returnedState.length === 0) throw new AuthFlowError('MISSING_STATE', 'OAuth state is missing.');
 
-      const transaction = this.transactions.consume();
+      const transaction = this.transactions.read();
       if (transaction === null) {
-        if (await this.getToken() !== null) return new URL(this.config.appBaseUrl).pathname;
+        if (providerError === null && await this.getToken() !== null) {
+          const result: LoginResult = { status: 'complete', returnTo: isAllowedReturnTo(this.transactions.readReturnTo() ?? this.config.appBaseUrl, this.config) };
+          this.transactions.saveOutcome(callbackUrl.pathname, result);
+          return result;
+        }
         throw new AuthFlowError('MISSING_TRANSACTION', 'The login transaction is missing or expired.');
       }
       if (transaction.clientId !== this.config.clientId) {
         throw new AuthFlowError('MISSING_TRANSACTION', 'The login transaction is missing or expired.');
       }
       if (returnedState !== transaction.state) throw new AuthFlowError('STATE_MISMATCH', 'OAuth state did not match the login request.');
+
+      this.transactions.clearTransaction();
+      acceptedTransaction = true;
+      await this.config.hooks?.onLoginCallbackStart?.();
+      if (operationEpoch !== this.authEpoch) throw new AuthFlowError('SESSION_CHANGED', 'Authentication changed while login was in progress.');
+      if (providerError === 'access_denied') {
+        const result: LoginResult = { status: 'cancelled' };
+        this.transactions.saveOutcome(callbackUrl.pathname, result);
+        return result;
+      }
+      if (providerError !== null) throw new AuthFlowError(providerError, 'The authorization server could not complete login.');
+      if (code === null) throw new AuthFlowError('MISSING_CODE', 'Authorization code is missing.');
 
       const response = await fetch(this.config.tokenEndpoint, {
         method: 'POST',
@@ -479,7 +680,7 @@ export class AuthClient<Profile = unknown> {
       if (operationEpoch !== this.authEpoch) throw new AuthFlowError('SESSION_CHANGED', 'Authentication changed while login was in progress.');
       this.logoutTransactions.clear();
       this.storage.save(record);
-      committedCallbackTokens = true;
+      committedCallbackRecord = record;
       this.setSnapshot({
         status: 'authenticated', isRefreshing: false, authError: null,
         grantedScopes: record.grantedScopes ?? null, profile: null,
@@ -490,15 +691,30 @@ export class AuthClient<Profile = unknown> {
       if (operationEpoch !== this.authEpoch) throw new AuthFlowError('SESSION_CHANGED', 'Authentication changed while login was in progress.');
       await this.loadProfile(token.access_token, operationEpoch);
       if (operationEpoch !== this.authEpoch) throw new AuthFlowError('SESSION_CHANGED', 'Authentication changed while login was in progress.');
-      const savedReturnTo = this.transactions.consumeReturnTo() ?? this.config.appBaseUrl;
-      return isAllowedReturnTo(savedReturnTo, this.config);
+      const result: LoginResult = { status: 'complete', returnTo: isAllowedReturnTo(this.transactions.readReturnTo() ?? this.config.appBaseUrl, this.config) };
+      this.transactions.saveOutcome(callbackUrl.pathname, result);
+      return result;
     } catch (reason: unknown) {
       if (operationEpoch !== this.authEpoch) {
         throw new AuthFlowError('SESSION_CHANGED', 'Authentication changed while login was in progress.');
       }
-      this.transactions.clear();
+      if (!acceptedTransaction) {
+        const error = normalizeFlowError(reason, 'LOGIN_CALLBACK_FAILED');
+        if (!replayedOutcome) {
+          this.transactions.saveOutcome(callbackUrl.pathname, { status: 'error', error });
+          try { await this.config.hooks?.onLoginError?.({ ...error, stage: 'loginCallback' }); } catch { /* Preserve the flow error. */ }
+        }
+        throw new AuthFlowError(error.code, error.message);
+      }
+      this.transactions.clearTransaction();
       const savedRecord = this.storage.getRecord();
-      const existingSessionIsUsable = !committedCallbackTokens && savedRecord !== null &&
+      const isCommittedRecord = committedCallbackRecord !== null && savedRecord?.accessToken === committedCallbackRecord.accessToken &&
+        savedRecord.expiresAt === committedCallbackRecord.expiresAt && savedRecord.idToken === committedCallbackRecord.idToken;
+      if (committedCallbackRecord !== null && savedRecord !== null && !isCommittedRecord) {
+        this.verifiedIdToken = null;
+        this.setSnapshot({ profile: null, profileStatus: 'idle', profileError: null, idTokenClaims: null });
+      }
+      const existingSessionIsUsable = !isCommittedRecord && savedRecord !== null &&
         savedRecord.expiresAt > Date.now() + 30_000 &&
         (this.oidcIdentity === null || await this.getToken() !== null);
       if (operationEpoch !== this.authEpoch) throw new AuthFlowError('SESSION_CHANGED', 'Authentication changed while login was in progress.');
@@ -516,6 +732,7 @@ export class AuthClient<Profile = unknown> {
         idTokenClaims: existingSessionIsUsable ? this.snapshot.idTokenClaims : null,
       });
       const error = normalizeFlowError(reason, 'LOGIN_CALLBACK_FAILED');
+      this.transactions.saveOutcome(callbackUrl.pathname, { status: 'error', error });
       try {
         await this.config.hooks?.onLoginError?.({ ...error, stage: 'loginCallback' });
       } catch {
@@ -680,13 +897,32 @@ export class AuthClient<Profile = unknown> {
   }
 
   private async performLogout(location: string): Promise<LogoutResult> {
+    const initialEpoch = this.authEpoch;
+    if (this.restoreRequest !== null) await this.restoreRequest;
+    this.assertLogoutEpoch(initialEpoch);
     const callbackUri = this.config.postLogoutRedirectUri;
+    if (callbackUri === undefined) {
+      const saved = this.logoutTransactions.get();
+      if (saved?.status === 'complete' && saved.callbackUri === this.config.routeUrls.logout) {
+        await this.getToken();
+        this.assertLogoutEpoch(initialEpoch);
+        return { status: 'complete', returnTo: saved.returnTo === undefined ? null : isAllowedReturnTo(saved.returnTo, this.config) };
+      }
+      if (saved?.status === 'error' && saved.callbackUri === this.config.routeUrls.logout) {
+        throw new AuthFlowError(saved.error.code, saved.error.message);
+      }
+    }
     if (callbackUri !== undefined) {
       const callbackEpoch = this.authEpoch;
+      let replayedError = false;
       // A return or terminal marker must never start local cleanup or another provider redirect.
       try {
         const current = new URL(location, window.location.origin);
         const saved = this.logoutTransactions.get();
+        if (saved !== null) {
+          await this.getToken();
+          this.assertLogoutEpoch(callbackEpoch);
+        }
         const states = current.searchParams.getAll('state');
         if (states.length > 0 || current.searchParams.has('error')) {
           if (current.origin + current.pathname !== callbackUri) {
@@ -710,7 +946,6 @@ export class AuthClient<Profile = unknown> {
           this.assertLogoutEpoch(callbackEpoch);
           this.logoutTransactions.save({ status: 'complete', callbackUri });
           if (this.storage.getRecord() === null) this.setSnapshot({ status: 'anonymous', authError: null });
-          await this.commitNavigation(current.pathname, true);
           return { status: 'complete', returnTo: null };
         }
         if (saved !== null) {
@@ -719,8 +954,17 @@ export class AuthClient<Profile = unknown> {
             if (this.storage.getRecord() === null) this.setSnapshot({ status: 'anonymous', authError: null });
             return { status: 'complete', returnTo: null };
           }
-          if (saved.status === 'error') throw new AuthFlowError(saved.error.code, saved.error.message);
-          throw new AuthFlowError('INCOMPLETE_PROVIDER_LOGOUT', 'The provider logout did not return a valid state. Start a new logout to retry.');
+          if (saved.status === 'error') {
+            replayedError = true;
+            throw new AuthFlowError(saved.error.code, saved.error.message);
+          }
+          if (saved.status === 'cancelled') return { status: 'cancelled' };
+          const age = Date.now() - saved.createdAt;
+          if (age < 0 || age >= logoutTransactionLifetimeMs) {
+            throw new AuthFlowError('EXPIRED_LOGOUT_TRANSACTION', 'The logout transaction has expired.');
+          }
+          this.logoutTransactions.save({ status: 'cancelled', callbackUri });
+          return { status: 'cancelled' };
         }
         if (current.origin + current.pathname === callbackUri && callbackUri !== this.config.routeUrls.logout) {
           throw new AuthFlowError('MISSING_LOGOUT_TRANSACTION', 'The logout transaction is missing.');
@@ -729,9 +973,9 @@ export class AuthClient<Profile = unknown> {
         this.assertLogoutEpoch(callbackEpoch);
         const error = normalizeFlowError(reason, 'LOGOUT_CALLBACK_FAILED');
         // Keep a terminal marker so a reload cannot turn a failed callback into a new logout.
-        this.saveLogoutFailure(callbackUri, error);
+        if (!replayedError) this.saveLogoutFailure(callbackUri, error);
         this.setSnapshot({ authError: error });
-        await this.reportLogoutError(error);
+        if (!replayedError) await this.reportLogoutError(error);
         throw new AuthFlowError(error.code, error.message);
       }
     }
@@ -742,7 +986,7 @@ export class AuthClient<Profile = unknown> {
     let idTokenHint: string | undefined;
     let failure: AuthError | null = null;
     try {
-      savedReturnTo = this.transactions.consumeReturnTo() ?? this.config.appBaseUrl;
+      savedReturnTo = this.transactions.readReturnTo() ?? this.config.appBaseUrl;
       idTokenHint = this.storage.getRecord()?.idToken;
     } catch (reason: unknown) {
       failure = normalizeFlowError(reason, 'LOGOUT_STORAGE_FAILED');
@@ -755,7 +999,7 @@ export class AuthClient<Profile = unknown> {
 
     this.assertLogoutEpoch(operationEpoch);
     // Clear the other local state even if one storage operation fails.
-    for (const clear of [() => this.storage.clear(), () => this.transactions.clear()]) {
+    for (const clear of [() => this.storage.clear(), () => this.transactions.clearTransaction(), () => this.transactions.clearOutcome()]) {
       try { clear(); } catch (reason: unknown) { failure ??= normalizeFlowError(reason, 'LOGOUT_STORAGE_FAILED'); }
     }
     this.setSnapshot({
@@ -775,10 +1019,15 @@ export class AuthClient<Profile = unknown> {
       this.setSnapshot({ authError: failure });
       await this.reportLogoutError(failure);
       this.assertLogoutEpoch(operationEpoch);
-      if (callbackUri === undefined) throw new AuthFlowError(failure.code, failure.message);
+      if (callbackUri === undefined) {
+        this.saveLogoutFailure(this.config.routeUrls.logout, failure);
+        throw new AuthFlowError(failure.code, failure.message);
+      }
     }
     if (callbackUri === undefined) {
-      return { status: 'complete', returnTo: isAllowedReturnTo(savedReturnTo, this.config) };
+      const returnTo = isAllowedReturnTo(savedReturnTo, this.config);
+      this.logoutTransactions.save({ status: 'complete', callbackUri: this.config.routeUrls.logout, returnTo });
+      return { status: 'complete', returnTo };
     }
 
     try {
@@ -790,6 +1039,7 @@ export class AuthClient<Profile = unknown> {
       url.searchParams.delete('id_token_hint');
       if (idTokenHint) url.searchParams.set('id_token_hint', idTokenHint);
       this.logoutTransactions.save({ status: 'pending', callbackUri, state, createdAt: Date.now() });
+      this.transactions.consumeReturnTo();
       this.assertLogoutEpoch(operationEpoch);
       window.location.replace(url.href);
       return { status: 'redirecting' };
@@ -949,4 +1199,10 @@ function normalizeFlowError(reason: unknown, fallbackCode: string): AuthError {
 
 function splitScopes(scope: string): readonly string[] {
   return scope.trim().split(/\s+/).filter((value) => value.length > 0);
+}
+
+function isHistoryRestore(): boolean {
+  if (typeof performance.getEntriesByType !== 'function') return false;
+  const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+  return navigation?.type === 'back_forward';
 }

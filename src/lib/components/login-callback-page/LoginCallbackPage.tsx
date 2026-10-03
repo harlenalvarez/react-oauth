@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
 import type { ComponentType, ReactElement } from 'react';
-import type { AuthError, LoginCallbackViewProps } from '@/types';
+import type { LoginCallbackViewProps } from '@/types';
 import type { AuthClient } from '@/services/auth-client/AuthClient';
 import { AuthScreen } from '../auth-screen/AuthScreen';
+import { useAuthStageRecovery } from '../auth-stage/useAuthStageRecovery';
 
 type LoginCallbackPageProps<Profile> = {
   readonly client: AuthClient<Profile>;
@@ -10,10 +10,15 @@ type LoginCallbackPageProps<Profile> = {
   readonly message?: string;
 };
 
-function DefaultLoginCallbackView({ status, error, message }: LoginCallbackViewProps & { readonly message?: string }): ReactElement {
-  return <AuthScreen><p role={error === null ? 'status' : 'alert'}>
-    {error?.message ?? (status === 'complete' ? 'Login complete.' : message ?? 'Logging in…')}
-  </p></AuthScreen>;
+function DefaultLoginCallbackView({ status, error, navigationError, onRetry, onContinue, message }: LoginCallbackViewProps & { readonly message?: string }): ReactElement {
+  return <AuthScreen>
+    <p role={error === null ? 'status' : 'alert'}>
+      {error?.message ?? (status === 'cancelled' ? 'Login was cancelled. You can try again.' : status === 'complete' ? 'Login complete.' : message ?? 'Logging in…')}
+    </p>
+    {navigationError !== null && <p role="alert">{navigationError.message}</p>}
+    {navigationError !== null && <button type="button" className="react-oauth-screen-action" onClick={onContinue}>Continue</button>}
+    {(status === 'cancelled' || status === 'error') && <button type="button" className="react-oauth-screen-action" onClick={onRetry}>Log in</button>}
+  </AuthScreen>;
 }
 
 export function LoginCallbackPage<Profile>({
@@ -21,32 +26,9 @@ export function LoginCallbackPage<Profile>({
   View,
   message,
 }: LoginCallbackPageProps<Profile>): ReactElement {
-  const [status, setStatus] = useState<LoginCallbackViewProps['status']>('processing');
-  const [error, setError] = useState<AuthError | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    const entry = client.getAuthRouteSnapshot();
-    void client.completeLogin().then(async (returnTo) => {
-      if (!active || entry !== client.getAuthRouteSnapshot()) return;
-      setStatus('complete');
-      await client.navigateInternal(returnTo, true);
-    }).catch(async (reason: unknown) => {
-      if (!active || entry !== client.getAuthRouteSnapshot()) return;
-      setStatus('error');
-      setError(reason instanceof Error
-        ? { code: 'LOGIN_CALLBACK_FAILED', message: reason.message }
-        : { code: 'LOGIN_CALLBACK_FAILED', message: 'Login could not be completed.' });
-      try {
-        await client.clearCallbackParameters();
-      } catch {
-        // Keep the flow error visible if the router rejects URL cleanup.
-      }
-    });
-    return () => { active = false; };
-  }, [client]);
+  const props = useAuthStageRecovery(client, 'loginCallback');
 
   return View === undefined
-    ? <DefaultLoginCallbackView status={status} error={error} message={message} />
-    : <View status={status} error={error} />;
+    ? <DefaultLoginCallbackView {...props} message={message} />
+    : <View {...props} />;
 }
